@@ -26,6 +26,7 @@ import ffmpeg_utils
 import jobs
 import scene_score
 import text_detect
+import transcribe
 
 ASPECT_RATIOS = {
     "16:9": (1920, 1080),
@@ -176,7 +177,7 @@ def _progress(job_id, frac, message):
     jobs.update_job(job_id, progress=round(frac, 3), message=message)
 
 
-def run_job(job_id, song_path, broll_paths, aspect_ratio, caption_text, work_dir, output_path):
+def run_job(job_id, song_path, broll_paths, aspect_ratio, caption_mode, caption_text, work_dir, output_path):
     os.makedirs(work_dir, exist_ok=True)
     target_w, target_h = ASPECT_RATIOS.get(aspect_ratio, ASPECT_RATIOS["9:16"])
     target_ratio = target_w / target_h
@@ -219,16 +220,30 @@ def run_job(job_id, song_path, broll_paths, aspect_ratio, caption_text, work_dir
     ffmpeg_utils.concat_segments(seg_paths, silent_path)
 
     video_for_mux = silent_path
-    if caption_text and caption_text.strip():
+    lyric_lines_found = 0
+
+    def _cap_progress(frac):
+        _progress(job_id, 0.83 + 0.10 * frac, "Adding cinematic beat-synced captions...")
+
+    if caption_mode == "custom" and caption_text and caption_text.strip():
         _progress(job_id, 0.83, "Adding cinematic beat-synced captions...")
         captioned_path = os.path.join(work_dir, "captioned.mp4")
-
-        def _cap_progress(frac):
-            _progress(job_id, 0.83 + 0.10 * frac, "Adding cinematic beat-synced captions...")
-
         captions.burn_beat_captions(silent_path, captioned_path, caption_text.strip(), beat_times,
                                      progress_cb=_cap_progress)
         video_for_mux = captioned_path
+
+    elif caption_mode == "auto":
+        _progress(job_id, 0.80, "Listening for vocals to auto-transcribe...")
+        lyric_lines = transcribe.transcribe_song(song_path)
+        lyric_lines_found = len(lyric_lines)
+        if lyric_lines:
+            _progress(job_id, 0.83, f"Adding {lyric_lines_found} auto-captioned lyric lines...")
+            captioned_path = os.path.join(work_dir, "captioned.mp4")
+            captions.burn_lyric_captions(silent_path, captioned_path, lyric_lines, beat_times,
+                                          progress_cb=_cap_progress)
+            video_for_mux = captioned_path
+        else:
+            _progress(job_id, 0.83, "No clear vocals detected — skipping auto captions.")
 
     _progress(job_id, 0.95, "Mixing in the track...")
     ffmpeg_utils.finalize_with_audio(video_for_mux, song_path, output_path, song_duration)
@@ -245,5 +260,8 @@ def run_job(job_id, song_path, broll_paths, aspect_ratio, caption_text, work_dir
             "cuts": total_cuts,
             "duration": song_duration,
             "aspect_ratio": aspect_ratio,
+            "caption_mode": caption_mode,
+            "lyric_lines": lyric_lines_found,
+            "lyrics": lyric_lines if caption_mode == "auto" and lyric_lines_found else [],
         },
     )

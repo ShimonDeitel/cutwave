@@ -50,6 +50,7 @@ def generate():
     song = request.files.get("song")
     broll_files = request.files.getlist("broll")
     aspect_ratio = request.form.get("aspect_ratio", "9:16")
+    caption_mode = request.form.get("caption_mode", "off")
     caption_text = request.form.get("caption", "").strip()
 
     if not song or not song.filename:
@@ -58,6 +59,10 @@ def generate():
         return jsonify({"error": "at least one b-roll clip is required"}), 400
     if aspect_ratio not in ASPECT_CHOICES:
         return jsonify({"error": f"unknown aspect ratio '{aspect_ratio}'"}), 400
+    if caption_mode not in ("off", "custom", "auto"):
+        return jsonify({"error": f"unknown caption mode '{caption_mode}'"}), 400
+    if caption_mode == "custom" and not caption_text:
+        return jsonify({"error": "custom caption mode needs caption text"}), 400
 
     job_id = jobs.create_job()
     job_upload_dir = os.path.join(UPLOAD_DIR, job_id)
@@ -77,7 +82,7 @@ def generate():
 
     jobs.run_in_background(
         job_id, pipeline.run_job,
-        song_path, broll_paths, aspect_ratio, caption_text, work_dir, output_path,
+        song_path, broll_paths, aspect_ratio, caption_mode, caption_text, work_dir, output_path,
     )
     return jsonify({"job_id": job_id})
 

@@ -55,14 +55,14 @@
       </div>
 
       <div class="option-block grow">
-        <div class="option-label">
-          <label class="switch">
-            <input type="checkbox" id="caption-toggle">
-            <span class="switch-track"></span>
-          </label>
-          Cinematic beat-synced caption
+        <div class="option-label">Captions</div>
+        <div class="mode-picker" id="caption-mode-picker">
+          <button class="mode-btn active" data-mode="off">Off</button>
+          <button class="mode-btn" data-mode="custom">Custom text</button>
+          <button class="mode-btn" data-mode="auto">Auto lyrics</button>
         </div>
         <input type="text" id="caption-text" class="caption-input" placeholder="e.g. FRIDAY NIGHT" maxlength="40" disabled>
+        <div class="caption-hint" id="caption-hint"></div>
       </div>
     </div>
 
