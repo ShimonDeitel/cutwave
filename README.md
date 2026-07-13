@@ -50,6 +50,11 @@ Everything below is plain Python (numpy/scipy/OpenCV) and the system
 - **Shot quality scoring** (`server/scene_score.py`) — frame-differencing
   and brightness/contrast checks bias selection toward shots with some
   motion and reasonable exposure, and away from frozen or blown-out frames.
+  Any candidate whose darkest sampled frame is near-black is hit with a
+  penalty large enough to rule it out unless literally nothing else is
+  available — this is what keeps camera start/stop black frames and
+  fade-to-black moments out of the edit. Each clip's first/last ~0.12s is
+  also skipped by default as a cheap extra margin.
 - **Assembly** (`server/ffmpeg_utils.py`) — every crop, trim, concat and mux
   is a plain `ffmpeg`/`ffprobe` subprocess call.
 - **Cinematic captions** (`server/captions.py`) — this machine's `ffmpeg`

@@ -39,7 +39,10 @@ ASPECT_RATIOS = {
 MIN_SHOT = 0.35
 MAX_SHOT = 3.2
 MAX_SONG_SECONDS = 600
-SAMPLE_EVERY = 0.35
+SAMPLE_EVERY = 0.2
+BLACK_BRIGHTNESS = 16       # mean grayscale value below this counts as a black/faded-out frame
+BLACK_PENALTY = 8.0         # dominates the score so a black moment is only ever picked as a last resort
+EDGE_MARGIN = 0.12          # skip the very start/end of a clip by default (camera start/stop black frames)
 
 
 def compute_cut_points(beat_times, total_duration, bpm, min_shot=MIN_SHOT, max_shot=MAX_SHOT):
@@ -141,8 +144,10 @@ def select_segments(clip_analyses, cut_durations, target_ratio):
             if clip_dur < dur * 0.98:
                 continue
             span = max(clip_dur - dur, 0.001)
+            margin = min(EDGE_MARGIN, span / 3.0)
+            lo, hi = margin, max(margin, span - margin)
             n_positions = max(3, min(24, int(span / max(dur, 0.4))))
-            starts = np.linspace(0, span, n_positions)
+            starts = np.linspace(lo, hi, n_positions)
             for s in starts:
                 e = s + dur
                 recs = [r for r in analysis["records"] if s <= r["t"] < e]
@@ -153,7 +158,9 @@ def select_segments(clip_analyses, cut_durations, target_ratio):
                 text_penalty = text_detect.text_score(boxes, analysis["width"] * analysis["height"]) * 0.6
                 overlap_penalty = _range_overlap_frac(used_ranges[ci], s, e) * 0.5
                 repeat_penalty = 0.2 if (ci == last_clip_idx and n_clips > 1) else 0.0
-                score = quality - text_penalty - overlap_penalty - repeat_penalty
+                min_brightness = min((r["brightness"] for r in recs), default=999.0)
+                black_penalty = BLACK_PENALTY if min_brightness < BLACK_BRIGHTNESS else 0.0
+                score = quality - text_penalty - overlap_penalty - repeat_penalty - black_penalty
                 if best is None or score > best[0]:
                     best = (score, ci, float(s), float(e), boxes, analysis["width"], analysis["height"])
 
