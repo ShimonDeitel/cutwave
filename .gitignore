@@ -1,0 +1,10 @@
+venv/
+uploads/*
+outputs/*
+work/*
+!uploads/.gitkeep
+!outputs/.gitkeep
+!work/.gitkeep
+__pycache__/
+*.pyc
+.DS_Store

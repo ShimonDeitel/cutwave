@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cutwave — beat-cut your b-roll, locally</title>
+<style>
+:root {
+  --bg: #08070c; --panel: #131019; --panel-2: #1a1624; --line: #2a2436;
+  --text: #f2eefc; --text-dim: #9c94b3;
+  --accent1: #ff5b7a; --accent2: #7c5cff; --accent3: #ffb454;
+  --grad: linear-gradient(120deg, var(--accent1), var(--accent2) 55%, var(--accent3));
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+.bg-glow {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(ellipse 900px 500px at 15% -10%, rgba(124,92,255,0.28), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 110% 10%, rgba(255,91,122,0.22), transparent 60%),
+    radial-gradient(ellipse 900px 600px at 50% 120%, rgba(255,180,84,0.14), transparent 60%);
+}
+.wrap { position: relative; z-index: 1; max-width: 880px; margin: 0 auto; padding: 60px 6vw 80px; }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 24px; font-weight: 800; }
+.brand-mark { width: 26px; height: 26px; }
+.hero { margin-top: 50px; }
+.hero h1 { font-size: clamp(34px, 6vw, 58px); line-height: 1.05; letter-spacing: -0.02em; margin: 0 0 20px; }
+.hero .grad-text { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hero p { color: var(--text-dim); font-size: 18px; max-width: 620px; line-height: 1.55; }
+.cta-row { display: flex; gap: 14px; margin-top: 30px; flex-wrap: wrap; }
+.btn { padding: 14px 22px; border-radius: 12px; font-weight: 700; font-size: 15px; text-decoration: none; display: inline-block; }
+.btn-primary { background: var(--grad); color: #0a0710; }
+.btn-secondary { background: rgba(255,255,255,0.05); color: var(--text); border: 1px solid var(--line); }
+
+.mock { margin-top: 60px; background: linear-gradient(180deg, var(--panel), var(--panel-2)); border: 1px solid var(--line); border-radius: 20px; padding: 26px; box-shadow: 0 30px 80px rgba(0,0,0,0.45); }
+.mock-row { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.mock-box { border: 2px dashed var(--line); border-radius: 14px; padding: 22px; text-align: center; color: var(--text-dim); font-size: 13px; }
+.mock-box b { display: block; color: var(--text); font-size: 15px; margin-bottom: 4px; }
+.mock-chip-row { display: flex; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+.mock-chip { border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; font-size: 12.5px; color: var(--text-dim); }
+.mock-chip.active { border-color: var(--accent1); color: var(--text); background: rgba(255,91,122,0.10); }
+.mock-btn { margin-top: 18px; text-align: center; padding: 14px; border-radius: 10px; background: var(--grad); color: #0a0710; font-weight: 800; font-size: 14px; }
+
+.section { margin-top: 80px; }
+.section h2 { font-size: 26px; letter-spacing: -0.01em; margin-bottom: 8px; }
+.section .sub { color: var(--text-dim); margin-bottom: 30px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; }
+.card { background: rgba(255,255,255,0.02); border: 1px solid var(--line); border-radius: 16px; padding: 22px; }
+.card .icon { font-size: 22px; margin-bottom: 10px; }
+.card h3 { margin: 0 0 8px; font-size: 16px; }
+.card p { margin: 0; color: var(--text-dim); font-size: 13.5px; line-height: 1.5; }
+
+.steps { counter-reset: step; }
+.step { display: flex; gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--line); }
+.step:last-child { border-bottom: none; }
+.step-num { counter-increment: step; flex-shrink: 0; width: 30px; height: 30px; border-radius: 50%; background: var(--grad); color: #0a0710; font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.step-num::before { content: counter(step); }
+.step p { margin: 4px 0 0; color: var(--text-dim); font-size: 14px; }
+.step strong { font-size: 15px; }
+
+pre { background: #0d0b13; border: 1px solid var(--line); border-radius: 12px; padding: 20px; overflow-x: auto; font-size: 13.5px; line-height: 1.6; }
+code { color: #ffd48a; }
+
+.callout { margin-top: 60px; border: 1px solid var(--line); background: rgba(124,92,255,0.06); border-radius: 16px; padding: 24px 26px; }
+.callout b { color: var(--text); }
+.callout p { color: var(--text-dim); margin: 6px 0 0; font-size: 14px; line-height: 1.6; }
+
+.foot { margin-top: 70px; color: var(--text-dim); font-size: 13px; text-align: center; }
+.foot a { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="bg-glow"></div>
+<div class="wrap">
+
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M6 24 L18 12 L18 20 L30 20 L30 12 L42 24 L30 36 L30 28 L18 28 L18 36 Z" fill="url(#g)"/>
+      <defs><linearGradient id="g" x1="0" y1="0" x2="48" y2="48"><stop offset="0" stop-color="#ff5b7a"/><stop offset="1" stop-color="#7c5cff"/></linearGradient></defs>
+    </svg>
+    <span>cutwave</span>
+  </div>
+
+  <div class="hero">
+    <h1>Beat-cut your b-roll<br><span class="grad-text">without leaving your machine.</span></h1>
+    <p>Drop in a song and some b-roll clips. cutwave finds the beat, cuts the footage to it, crops out
+       any on-screen text it spots, and can burn in a cinematic caption that pulses with the music —
+       entirely with a local Python + ffmpeg pipeline. Nothing you drop in gets uploaded anywhere.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/ShimonDeitel/cutwave">View on GitHub</a>
+      <a class="btn btn-secondary" href="#run">Run it locally</a>
+    </div>
+  </div>
+
+  <div class="mock" aria-hidden="true">
+    <div class="mock-row">
+      <div class="mock-box"><b>♪ Your track</b>MP3, WAV, M4A — drop or click</div>
+      <div class="mock-box"><b>▶ B-roll clips</b>Any length, any number of clips</div>
+    </div>
+    <div class="mock-chip-row">
+      <span class="mock-chip">9:16</span>
+      <span class="mock-chip active">16:9</span>
+      <span class="mock-chip">1:1</span>
+      <span class="mock-chip">4:5</span>
+      <span class="mock-chip">4:3</span>
+    </div>
+    <div class="mock-btn">Generate music video</div>
+  </div>
+
+  <div class="section">
+    <h2>What it actually does</h2>
+    <div class="sub">No cloud calls, no ML models to download — a from-scratch numpy/scipy/OpenCV pipeline plus the system ffmpeg.</div>
+    <div class="grid">
+      <div class="card">
+        <div class="icon">〜</div>
+        <h3>Beat detection, from scratch</h3>
+        <p>Band-pass filters the song to the kick/bass range, builds an onset-strength envelope, and peak-picks beat times. Tempo comes from autocorrelating that envelope — no beat-tracking library involved.</p>
+      </div>
+      <div class="card">
+        <div class="icon">✂</div>
+        <h3>Cuts that respect the beat</h3>
+        <p>The beat grid becomes a list of shot boundaries with a minimum and maximum shot length, so the edit feels intentional instead of chaotic.</p>
+      </div>
+      <div class="card">
+        <div class="icon">▭</div>
+        <h3>Text-avoiding crop</h3>
+        <p>OpenCV's MSER detector finds glyph-shaped clusters (captions, watermarks) without OCR. A 2D search over crop position <em>and</em> zoom finds the window of your chosen aspect ratio that overlaps them the least.</p>
+      </div>
+      <div class="card">
+        <div class="icon">◐</div>
+        <h3>Shot quality scoring</h3>
+        <p>Frame-differencing and brightness/contrast checks favor footage with real motion and reasonable exposure, and steer away from frozen or blown-out frames.</p>
+      </div>
+      <div class="card">
+        <div class="icon">Aa</div>
+        <h3>Cinematic beat-synced captions</h3>
+        <p>Captions are composited frame-by-frame in Python: a PIL text sprite scales and shears from an exponential "hit" envelope timed to each beat, with a lagging drop-shadow layer for cheap parallax depth.</p>
+      </div>
+      <div class="card">
+        <div class="icon">◈</div>
+        <h3>Live 3D caption preview</h3>
+        <p>In the browser, a Web Audio analyser reads the finished video's own audio and drives real CSS 3D transforms on a caption overlay — a bonus layer on top of the already-rendered file.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" id="run">
+    <h2>Run it locally</h2>
+    <div class="sub">This is a local tool by design — the editing pipeline needs ffmpeg and a real Python process, which a static site can't run. Clone it and start it on your own machine.</div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num"></div>
+        <div><strong>Install ffmpeg</strong><p>macOS: <code>brew install ffmpeg</code>. It must be on your <code>PATH</code>.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num"></div>
+        <div><strong>Clone the repo</strong><p><code>git clone https://github.com/ShimonDeitel/cutwave.git &amp;&amp; cd cutwave</code></p></div>
+      </div>
+      <div class="step">
+        <div class="step-num"></div>
+        <div><strong>Run it</strong><p><code>./run.sh</code> — creates a virtualenv, installs the pinned dependencies, and starts the app.</p></div>
+      </div>
+      <div class="step">
+        <div class="step-num"></div>
+        <div><strong>Open it</strong><p><a href="http://localhost:3000" style="color:var(--text)">http://localhost:3000</a> — drop a song and some b-roll, and go.</p></div>
+      </div>
+    </div>
+
+    <pre><code>git clone https://github.com/ShimonDeitel/cutwave.git
+cd cutwave
+./run.sh
+# → http://localhost:3000</code></pre>
+  </div>
+
+  <div class="callout">
+    <b>Why this page isn't the app.</b>
+    <p>GitHub Pages only serves static files — it can't run the Python + ffmpeg backend that does the actual
+       beat detection, text-avoiding crops, and video rendering. This page is a static landing page describing
+       the project; the real app runs on your machine via <code>./run.sh</code> above.</p>
+  </div>
+
+  <div class="foot">
+    <a href="https://github.com/ShimonDeitel/cutwave">github.com/ShimonDeitel/cutwave</a> — 100% local, no accounts, no uploads.
+  </div>
+
+</div>
+</body>
+</html>
