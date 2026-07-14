@@ -23,6 +23,11 @@ import uuid
 
 import paths
 
+# Set via Info.plist LSEnvironment on builds meant only for the developer's
+# own machine (see cutwave.spec's CUTWAVE_BUILD_UNLOCKED build-time flag) --
+# never on the default/public build, which always enforces the real gate.
+DEVELOPER_UNLOCK = os.environ.get("CUTWAVE_DEVELOPER_UNLOCK") == "1"
+
 STATE_PATH = os.path.join(paths.user_data_dir(), "license_state.json")
 FREE_GENERATIONS_PER_DAY = 1
 REVALIDATE_INTERVAL_HOURS = 24
@@ -140,6 +145,8 @@ def _revalidate_if_stale(state):
 def status():
     """Everything the UI needs: licensed?, how many free generations are
     left today (None once licensed, since it's unlimited)."""
+    if DEVELOPER_UNLOCK:
+        return {"licensed": True, "free_remaining_today": None}
     state = _revalidate_if_stale(_load_state())
     licensed = state.get("license_status") == "active"
     used_today = state.get("free_uses_count", 0) if state.get("free_uses_date") == _today() else 0

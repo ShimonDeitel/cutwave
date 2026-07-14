@@ -1,9 +1,14 @@
 # PyInstaller spec for the native cutwave.app. Build with:
 #   source venv/bin/activate && pyinstaller cutwave.spec --noconfirm
+#
+# For a personal, unmetered build for the developer's own machine only
+# (never for distribution):
+#   CUTWAVE_BUILD_UNLOCKED=1 pyinstaller cutwave.spec --noconfirm
 import os
 
 block_cipher = None
 root = os.path.abspath(".")
+build_unlocked = os.environ.get("CUTWAVE_BUILD_UNLOCKED") == "1"
 
 a = Analysis(
     ["server/desktop_app.py"],
@@ -49,14 +54,18 @@ coll = COLLECT(
     name="cutwave",
 )
 
+info_plist = {
+    "NSHighResolutionCapable": True,
+    "LSMinimumSystemVersion": "11.0",
+    "CFBundleShortVersionString": "0.1.0",
+}
+if build_unlocked:
+    info_plist["LSEnvironment"] = {"CUTWAVE_DEVELOPER_UNLOCK": "1"}
+
 app = BUNDLE(
     coll,
     name="cutwave.app",
     icon=None,
     bundle_identifier="com.cutwave.app",
-    info_plist={
-        "NSHighResolutionCapable": True,
-        "LSMinimumSystemVersion": "11.0",
-        "CFBundleShortVersionString": "0.1.0",
-    },
+    info_plist=info_plist,
 )
