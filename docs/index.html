@@ -83,10 +83,13 @@ code { color: #ffd48a; }
   </div>
 
   <div class="hero">
-    <h1>Beat-cut your b-roll<br><span class="grad-text">without leaving your machine.</span></h1>
-    <p>Drop in a song and some b-roll clips. cutwave finds the beat, cuts the footage to it, crops out
-       any on-screen text it spots, and can burn in a cinematic caption that pulses with the music —
-       entirely with a local Python + ffmpeg pipeline. Nothing you drop in gets uploaded anywhere.</p>
+    <h1>Beat-cut your b-roll,<br>reframe your videos —<br><span class="grad-text">without leaving your machine.</span></h1>
+    <p>Two modes. <b>Long-form:</b> drop in a song and some b-roll clips, and cutwave finds the beat,
+       cuts the footage to it, crops out any on-screen text it spots, and can burn in a cinematic
+       caption that pulses with the music. <b>YouTube Short:</b> drop in one existing video, and it
+       auto-picks the most engaging window, tracks the subject (face first, motion as fallback), and
+       reframes it to fill a vertical screen. Both run entirely on a local Python + ffmpeg pipeline —
+       nothing you drop in gets uploaded anywhere.</p>
     <div class="cta-row">
       <a class="btn btn-primary" href="https://github.com/ShimonDeitel/cutwave">View on GitHub</a>
       <a class="btn btn-secondary" href="#run">Run it locally</a>
@@ -94,6 +97,10 @@ code { color: #ffd48a; }
   </div>
 
   <div class="mock" aria-hidden="true">
+    <div class="mock-chip-row" style="margin-top:0; margin-bottom:18px;">
+      <span class="mock-chip active" style="padding:10px 16px;">Long-form video</span>
+      <span class="mock-chip" style="padding:10px 16px;">YouTube Short</span>
+    </div>
     <div class="mock-row">
       <div class="mock-box"><b>♪ Your track</b>MP3, WAV, M4A — drop or click</div>
       <div class="mock-box"><b>▶ B-roll clips</b>Any length, any number of clips</div>
@@ -145,6 +152,28 @@ code { color: #ffd48a; }
     </div>
   </div>
 
+  <div class="section">
+    <h2>YouTube Short mode</h2>
+    <div class="sub">Feed it one existing video instead — no song, no b-roll.</div>
+    <div class="grid">
+      <div class="card">
+        <div class="icon">◎</div>
+        <h3>Auto highlight selection</h3>
+        <p>Videos longer than ~75s get scanned in full with the same motion/brightness/contrast scoring as the b-roll picker, and the most engaging ~45s window is used. Shorter videos are reframed whole.</p>
+      </div>
+      <div class="card">
+        <div class="icon">◍</div>
+        <h3>Face tracking, motion fallback</h3>
+        <p>OpenCV's built-in YuNet face detector finds the subject when there's a face on screen; when there isn't (gameplay, action, general b-roll), the largest moving region takes over instead.</p>
+      </div>
+      <div class="card">
+        <div class="icon">▥</div>
+        <h3>Screen-filling reframe</h3>
+        <p>The tracked position is EMA-smoothed and interpolated per frame into a 9:16 crop that follows the subject, with a slow continuous push-in for some cinematic motion even on static shots.</p>
+      </div>
+    </div>
+  </div>
+
   <div class="section" id="run">
     <h2>Run it locally</h2>
     <div class="sub">This is a local tool by design — the editing pipeline needs ffmpeg and a real Python process, which a static site can't run. Clone it and start it on your own machine.</div>
@@ -164,7 +193,7 @@ code { color: #ffd48a; }
       </div>
       <div class="step">
         <div class="step-num"></div>
-        <div><strong>Open it</strong><p><a href="http://localhost:3000" style="color:var(--text)">http://localhost:3000</a> — drop a song and some b-roll, and go.</p></div>
+        <div><strong>Open it</strong><p><a href="http://localhost:3000" style="color:var(--text)">http://localhost:3000</a> — pick Long-form or Short at the top, drop your files, and go.</p></div>
       </div>
     </div>
 
