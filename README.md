@@ -43,10 +43,16 @@ Everything below is plain Python (numpy/scipy/OpenCV) and the system
   signature of on-screen text/captions/watermarks), without OCR or a
   downloaded model.
 - **Crop selection** — for every candidate shot, a 2D search over crop
-  windows (position *and* a modest amount of extra zoom) finds the crop of
-  your chosen aspect ratio that overlaps the least with detected text. A
-  full-width caption band can only be dodged by also shrinking the crop, not
-  just sliding it sideways, so both are searched.
+  windows (position *and* zoom, down to 0.5x) finds the crop of your chosen
+  aspect ratio that overlaps detected text the least. A full-width caption
+  band can only be dodged by also shrinking the crop, not just sliding it
+  sideways, so both are searched, with overlap scored against the crop's
+  own area (not the source frame's) so the penalty doesn't artificially
+  shrink on high-res footage. On heavily-captioned real-world sources
+  (news-style bodycam compilations, game HUDs) this eliminates most but not
+  all on-screen text — a thin single caption line with a small pixel
+  footprint may still occasionally show, since fully removing it would mean
+  zooming in far enough to noticeably degrade the shot.
 - **Shot quality scoring** (`server/scene_score.py`) — frame-differencing
   and brightness/contrast checks bias selection toward shots with some
   motion and reasonable exposure, and away from frozen or blown-out frames.

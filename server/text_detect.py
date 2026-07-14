@@ -64,14 +64,27 @@ def sample_text_boxes(cap, fps, start_frame, end_frame, sample_every_s=0.5):
     return boxes_all
 
 
-def best_crop(boxes, src_w, src_h, target_ratio, zoom_steps=(1.0, 0.88, 0.76), pos_steps=5):
+def best_crop(boxes, src_w, src_h, target_ratio,
+               zoom_steps=(1.0, 0.92, 0.84, 0.76, 0.68, 0.6, 0.5), pos_steps=7, zoom_cost=0.12):
     """2D search over crop windows of aspect `target_ratio` within the
-    source frame -- both position AND a modest amount of extra zoom-in are
-    candidates, since a full-width caption band (top or bottom) can only be
-    dodged by also shrinking the crop, not just sliding it sideways.
-    Returns the (x, y, w, h) that overlaps detected text the least, with a
-    small bias toward less zoom when overlap is a tie. Falls back to a
-    centered, full-size crop when there's no text."""
+    source frame -- both position AND a meaningful amount of extra zoom-in
+    are candidates, since a caption band, HUD overlay, or scattered on-
+    screen text can only be dodged by also shrinking the crop, not just
+    sliding it sideways. Real-world footage (bodycam overlays, game HUDs)
+    routinely has text speckled across most of the frame, so the search
+    goes down to 0.6x before giving up.
+
+    Both terms of the score are fractions (0..1-ish), not raw pixel counts:
+    `overlap_frac` is how much of what the *viewer will actually see* (the
+    crop itself, not the untouched source) is covered by detected text, and
+    `zoom_penalty` is a flat cost for zooming in further. Scoring overlap
+    against the source frame's area instead would make the text penalty
+    shrink for no reason as resolution goes up, letting the zoom cost
+    dominate and leaving text un-avoided on exactly the high-res footage
+    where it matters most.
+
+    Returns the (x, y, w, h) that scores best. Falls back to a centered,
+    full-size crop when there's no text."""
     src_ratio = src_w / src_h
 
     if not boxes:
@@ -86,7 +99,6 @@ def best_crop(boxes, src_w, src_h, target_ratio, zoom_steps=(1.0, 0.88, 0.76), p
         return (x, y, crop_w, crop_h)
 
     best = None
-    frame_area = src_w * src_h
     for zoom in zoom_steps:
         if target_ratio <= src_ratio:
             crop_h = int(round(src_h * zoom))
@@ -102,12 +114,13 @@ def best_crop(boxes, src_w, src_h, target_ratio, zoom_steps=(1.0, 0.88, 0.76), p
                 crop_w = int(round(crop_h * target_ratio))
         crop_w = max(2, min(crop_w, src_w))
         crop_h = max(2, min(crop_h, src_h))
+        crop_area = crop_w * crop_h
 
         for x in _linspace_int(0, src_w - crop_w, pos_steps):
             for y in _linspace_int(0, src_h - crop_h, pos_steps):
-                overlap = _overlap_area(boxes, x, y, crop_w, crop_h)
-                zoom_penalty = (1.0 - zoom) * frame_area * 0.02
-                score = overlap + zoom_penalty
+                overlap_frac = _overlap_area(boxes, x, y, crop_w, crop_h) / crop_area
+                zoom_penalty = (1.0 - zoom) * zoom_cost
+                score = overlap_frac + zoom_penalty
                 if best is None or score < best[0]:
                     best = (score, x, y, crop_w, crop_h)
     _, x, y, crop_w, crop_h = best
