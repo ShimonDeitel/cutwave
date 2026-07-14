@@ -105,3 +105,23 @@ def finalize_with_audio(video_path, audio_path, out_path, duration):
 def make_thumbnail(video_path, out_path, at_seconds=0.5):
     cmd = ["ffmpeg", "-y", "-ss", f"{at_seconds:.3f}", "-i", video_path, "-vframes", "1", out_path]
     _run(cmd)
+
+
+def mux_trimmed_source_audio(rendered_video_path, source_path, start, duration, out_path):
+    """Mux a rendered (silent) video with a trimmed slice of a *different*
+    source file's own audio track -- used for Shorts, where the reframed
+    render starts its own timeline at 0 but the matching audio is some
+    [start, start+duration) window of the original long-form video. The `?`
+    on the audio map makes it optional so silent source videos don't fail."""
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", rendered_video_path,
+        "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", source_path,
+        "-map", "0:v:0", "-map", "1:a:0?",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k",
+        "-t", f"{duration:.3f}",
+        "-movflags", "+faststart",
+        out_path,
+    ]
+    _run(cmd)

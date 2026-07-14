@@ -8,6 +8,7 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import jobs
 import pipeline
+import shorts
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
@@ -47,6 +48,26 @@ def aspect_ratios():
 
 @app.route("/api/generate", methods=["POST"])
 def generate():
+    mode = request.form.get("mode", "long")
+    if mode not in ("long", "short"):
+        return jsonify({"error": f"unknown mode '{mode}'"}), 400
+
+    job_id = jobs.create_job()
+    job_upload_dir = os.path.join(UPLOAD_DIR, job_id)
+    os.makedirs(job_upload_dir, exist_ok=True)
+    work_dir = os.path.join(WORK_DIR, job_id)
+    output_path = os.path.join(OUTPUT_DIR, f"{job_id}.mp4")
+
+    if mode == "short":
+        video = request.files.get("video")
+        if not video or not video.filename:
+            return jsonify({"error": "a video file is required"}), 400
+        video_path = os.path.join(job_upload_dir, "video_" + _safe_name(video.filename))
+        video.save(video_path)
+
+        jobs.run_in_background(job_id, shorts.run_short_job, video_path, work_dir, output_path)
+        return jsonify({"job_id": job_id})
+
     song = request.files.get("song")
     broll_files = request.files.getlist("broll")
     aspect_ratio = request.form.get("aspect_ratio", "9:16")
@@ -64,10 +85,6 @@ def generate():
     if caption_mode == "custom" and not caption_text:
         return jsonify({"error": "custom caption mode needs caption text"}), 400
 
-    job_id = jobs.create_job()
-    job_upload_dir = os.path.join(UPLOAD_DIR, job_id)
-    os.makedirs(job_upload_dir, exist_ok=True)
-
     song_path = os.path.join(job_upload_dir, "song_" + _safe_name(song.filename))
     song.save(song_path)
 
@@ -76,9 +93,6 @@ def generate():
         p = os.path.join(job_upload_dir, f"broll_{i:02d}_" + _safe_name(f.filename))
         f.save(p)
         broll_paths.append(p)
-
-    work_dir = os.path.join(WORK_DIR, job_id)
-    output_path = os.path.join(OUTPUT_DIR, f"{job_id}.mp4")
 
     jobs.run_in_background(
         job_id, pipeline.run_job,

@@ -1,19 +1,31 @@
 (function () {
   "use strict";
 
-  const state = { song: null, broll: [], ratio: "16:9", captionMode: "off", jobId: null, pollTimer: null, lyrics: null };
+  const state = {
+    contentMode: "long", song: null, broll: [], video: null,
+    ratio: "16:9", captionMode: "off", jobId: null, pollTimer: null, lyrics: null,
+  };
+
+  const tagline = document.getElementById("tagline");
+  const contentModePicker = document.getElementById("content-mode-picker");
+  const longFormFields = document.getElementById("long-form-fields");
+  const shortFormFields = document.getElementById("short-form-fields");
 
   const dzSong = document.getElementById("dz-song");
   const dzBroll = document.getElementById("dz-broll");
+  const dzVideo = document.getElementById("dz-video");
   const inputSong = document.getElementById("input-song");
   const inputBroll = document.getElementById("input-broll");
+  const inputVideo = document.getElementById("input-video");
   const songLabel = document.getElementById("song-file-label");
   const brollLabel = document.getElementById("broll-file-label");
+  const videoLabel = document.getElementById("video-file-label");
   const ratioPicker = document.getElementById("ratio-picker");
   const captionModePicker = document.getElementById("caption-mode-picker");
   const captionText = document.getElementById("caption-text");
   const captionHint = document.getElementById("caption-hint");
   const generateBtn = document.getElementById("generate-btn");
+  const generateBtnLabel = document.getElementById("generate-btn-label");
   const errorMsg = document.getElementById("error-msg");
 
   const CAPTION_HINTS = {
@@ -21,6 +33,12 @@
     custom: "Type the words you want pulsing on screen, timed to the beat.",
     auto: "Transcribes sung vocals automatically and shows them karaoke-style, word by word. Instrumental tracks are skipped gracefully.",
   };
+
+  const TAGLINES = {
+    long: "drop a song + b-roll → get a beat-cut music video. runs entirely on this machine.",
+    short: "drop an existing video → get a reframed, screen-filling YouTube Short. runs entirely on this machine.",
+  };
+  const GENERATE_LABELS = { long: "Generate music video", short: "Generate YouTube Short" };
 
   const panelSetup = document.getElementById("panel-setup");
   const panelProgress = document.getElementById("panel-progress");
@@ -30,8 +48,12 @@
 
   const resultVideo = document.getElementById("result-video");
   const downloadLink = document.getElementById("download-link");
+  const statRowBpm = document.getElementById("stat-row-bpm");
+  const statRowCuts = document.getElementById("stat-row-cuts");
+  const statRowHighlight = document.getElementById("stat-row-highlight");
   const statBpm = document.getElementById("stat-bpm");
   const statCuts = document.getElementById("stat-cuts");
+  const statHighlight = document.getElementById("stat-highlight");
   const statDuration = document.getElementById("stat-duration");
   const statRatio = document.getElementById("stat-ratio");
   const resetBtn = document.getElementById("reset-btn");
@@ -47,8 +69,45 @@
   }
 
   function updateGenerateEnabled() {
+    if (state.contentMode === "short") {
+      generateBtn.disabled = !state.video;
+      return;
+    }
     const captionOk = state.captionMode !== "custom" || captionText.value.trim().length > 0;
     generateBtn.disabled = !(state.song && state.broll.length > 0 && captionOk);
+  }
+
+  // --- content mode (long-form vs short) ---
+  contentModePicker.addEventListener("click", (e) => {
+    const btn = e.target.closest(".content-mode-btn");
+    if (!btn) return;
+    contentModePicker.querySelectorAll(".content-mode-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.contentMode = btn.dataset.contentMode;
+    longFormFields.classList.toggle("hidden", state.contentMode !== "long");
+    shortFormFields.classList.toggle("hidden", state.contentMode !== "short");
+    tagline.textContent = TAGLINES[state.contentMode];
+    generateBtnLabel.textContent = GENERATE_LABELS[state.contentMode];
+    updateGenerateEnabled();
+  });
+
+  // --- video dropzone (short mode) ---
+  dzVideo.addEventListener("click", () => inputVideo.click());
+  inputVideo.addEventListener("change", (e) => setVideo(e.target.files[0]));
+  ["dragover", "dragleave", "drop"].forEach((evt) => {
+    dzVideo.addEventListener(evt, (e) => {
+      e.preventDefault();
+      dzVideo.classList.toggle("dragover", evt === "dragover");
+      if (evt === "drop" && e.dataTransfer.files.length) setVideo(e.dataTransfer.files[0]);
+    });
+  });
+
+  function setVideo(file) {
+    if (!file) return;
+    state.video = file;
+    dzVideo.classList.add("filled");
+    videoLabel.textContent = `${file.name} — ${fmtBytes(file.size)}`;
+    updateGenerateEnabled();
   }
 
   // --- song dropzone ---
@@ -116,11 +175,16 @@
   generateBtn.addEventListener("click", async () => {
     errorMsg.textContent = "";
     const fd = new FormData();
-    fd.append("song", state.song);
-    state.broll.forEach((f) => fd.append("broll", f));
-    fd.append("aspect_ratio", state.ratio);
-    fd.append("caption_mode", state.captionMode);
-    fd.append("caption", state.captionMode === "custom" ? captionText.value.trim() : "");
+    fd.append("mode", state.contentMode);
+    if (state.contentMode === "short") {
+      fd.append("video", state.video);
+    } else {
+      fd.append("song", state.song);
+      state.broll.forEach((f) => fd.append("broll", f));
+      fd.append("aspect_ratio", state.ratio);
+      fd.append("caption_mode", state.captionMode);
+      fd.append("caption", state.captionMode === "custom" ? captionText.value.trim() : "");
+    }
 
     generateBtn.disabled = true;
     try {
@@ -178,12 +242,31 @@
     resultVideo.removeEventListener("timeupdate", onLyricTimeUpdate);
     resultVideo.src = `/api/preview/${state.jobId}`;
     downloadLink.href = `/api/download/${state.jobId}`;
-    statBpm.textContent = Math.round(job.result.bpm) + " BPM";
-    statCuts.textContent = job.result.cuts;
     statDuration.textContent = job.result.duration.toFixed(1) + "s";
     statRatio.textContent = job.result.aspect_ratio;
 
     state.lyrics = null;
+
+    if (job.result.mode === "short") {
+      statRowBpm.classList.add("hidden");
+      statRowCuts.classList.add("hidden");
+      statRowHighlight.classList.remove("hidden");
+      const src = job.result.source_duration;
+      const a = job.result.highlight_start;
+      const b = a + job.result.duration;
+      statHighlight.textContent = src > job.result.duration + 0.5
+        ? `${a.toFixed(0)}s-${b.toFixed(0)}s of ${src.toFixed(0)}s`
+        : "whole video";
+      live3dRow.style.display = "none";
+      return;
+    }
+
+    statRowBpm.classList.remove("hidden");
+    statRowCuts.classList.remove("hidden");
+    statRowHighlight.classList.add("hidden");
+    statBpm.textContent = Math.round(job.result.bpm) + " BPM";
+    statCuts.textContent = job.result.cuts;
+
     if (job.result.caption_mode === "custom" && captionText.value.trim()) {
       caption3dText.textContent = captionText.value.trim();
       live3dRow.style.display = "flex";
@@ -211,15 +294,25 @@
     resultVideo.removeEventListener("timeupdate", onLyricTimeUpdate);
     state.song = null;
     state.broll = [];
+    state.video = null;
     state.jobId = null;
     state.lyrics = null;
     state.captionMode = "off";
+    state.contentMode = "long";
+    contentModePicker.querySelectorAll(".content-mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.contentMode === "long"));
+    longFormFields.classList.remove("hidden");
+    shortFormFields.classList.add("hidden");
+    tagline.textContent = TAGLINES.long;
+    generateBtnLabel.textContent = GENERATE_LABELS.long;
     dzSong.classList.remove("filled");
     dzBroll.classList.remove("filled");
+    dzVideo.classList.remove("filled");
     songLabel.textContent = "";
     brollLabel.textContent = "";
+    videoLabel.textContent = "";
     inputSong.value = "";
     inputBroll.value = "";
+    inputVideo.value = "";
     captionModePicker.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === "off"));
     captionText.disabled = true;
     captionText.value = "";

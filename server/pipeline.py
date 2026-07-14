@@ -263,6 +263,7 @@ def run_job(job_id, song_path, broll_paths, aspect_ratio, caption_mode, caption_
         result={
             "video_path": output_path,
             "thumb_path": thumb_path,
+            "mode": "long",
             "bpm": bpm,
             "cuts": total_cuts,
             "duration": song_duration,

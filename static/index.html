@@ -18,56 +18,80 @@
     </svg>
     <span>cutwave</span>
   </div>
-  <div class="tagline">drop a song + b-roll → get a beat-cut music video. runs entirely on this machine.</div>
+  <div class="tagline" id="tagline">drop a song + b-roll → get a beat-cut music video. runs entirely on this machine.</div>
 </header>
 
 <main class="stage">
 
   <section id="panel-setup" class="panel">
-    <div class="drop-row">
-      <div class="dropzone" id="dz-song" data-kind="song">
-        <input type="file" id="input-song" accept="audio/*" hidden>
-        <div class="dz-icon">♪</div>
-        <div class="dz-title">Your track</div>
-        <div class="dz-sub">MP3, WAV, M4A — drop or click</div>
-        <div class="dz-file" id="song-file-label"></div>
+    <div class="content-mode-picker" id="content-mode-picker">
+      <button class="content-mode-btn active" data-content-mode="long">
+        <span class="cm-title">Long-form video</span>
+        <span class="cm-sub">Song + b-roll, beat-cut to length</span>
+      </button>
+      <button class="content-mode-btn" data-content-mode="short">
+        <span class="cm-title">YouTube Short</span>
+        <span class="cm-sub">Reframe an existing video to fill a vertical screen</span>
+      </button>
+    </div>
+
+    <div id="long-form-fields">
+      <div class="drop-row">
+        <div class="dropzone" id="dz-song" data-kind="song">
+          <input type="file" id="input-song" accept="audio/*" hidden>
+          <div class="dz-icon">♪</div>
+          <div class="dz-title">Your track</div>
+          <div class="dz-sub">MP3, WAV, M4A — drop or click</div>
+          <div class="dz-file" id="song-file-label"></div>
+        </div>
+
+        <div class="dropzone" id="dz-broll" data-kind="broll">
+          <input type="file" id="input-broll" accept="video/*" multiple hidden>
+          <div class="dz-icon">▶</div>
+          <div class="dz-title">B-roll clips</div>
+          <div class="dz-sub">Any length, any number of clips</div>
+          <div class="dz-file" id="broll-file-label"></div>
+        </div>
       </div>
 
-      <div class="dropzone" id="dz-broll" data-kind="broll">
-        <input type="file" id="input-broll" accept="video/*" multiple hidden>
-        <div class="dz-icon">▶</div>
-        <div class="dz-title">B-roll clips</div>
-        <div class="dz-sub">Any length, any number of clips</div>
-        <div class="dz-file" id="broll-file-label"></div>
+      <div class="options-row">
+        <div class="option-block">
+          <div class="option-label">Aspect ratio</div>
+          <div class="ratio-picker" id="ratio-picker">
+            <button class="ratio-btn" data-ratio="9:16"><span class="ratio-swatch r-9-16"></span>9:16</button>
+            <button class="ratio-btn active" data-ratio="16:9"><span class="ratio-swatch r-16-9"></span>16:9</button>
+            <button class="ratio-btn" data-ratio="1:1"><span class="ratio-swatch r-1-1"></span>1:1</button>
+            <button class="ratio-btn" data-ratio="4:5"><span class="ratio-swatch r-4-5"></span>4:5</button>
+            <button class="ratio-btn" data-ratio="4:3"><span class="ratio-swatch r-4-3"></span>4:3</button>
+          </div>
+        </div>
+
+        <div class="option-block grow">
+          <div class="option-label">Captions</div>
+          <div class="mode-picker" id="caption-mode-picker">
+            <button class="mode-btn active" data-mode="off">Off</button>
+            <button class="mode-btn" data-mode="custom">Custom text</button>
+            <button class="mode-btn" data-mode="auto">Auto lyrics</button>
+          </div>
+          <input type="text" id="caption-text" class="caption-input" placeholder="e.g. FRIDAY NIGHT" maxlength="40" disabled>
+          <div class="caption-hint" id="caption-hint"></div>
+        </div>
       </div>
     </div>
 
-    <div class="options-row">
-      <div class="option-block">
-        <div class="option-label">Aspect ratio</div>
-        <div class="ratio-picker" id="ratio-picker">
-          <button class="ratio-btn" data-ratio="9:16"><span class="ratio-swatch r-9-16"></span>9:16</button>
-          <button class="ratio-btn active" data-ratio="16:9"><span class="ratio-swatch r-16-9"></span>16:9</button>
-          <button class="ratio-btn" data-ratio="1:1"><span class="ratio-swatch r-1-1"></span>1:1</button>
-          <button class="ratio-btn" data-ratio="4:5"><span class="ratio-swatch r-4-5"></span>4:5</button>
-          <button class="ratio-btn" data-ratio="4:3"><span class="ratio-swatch r-4-3"></span>4:3</button>
-        </div>
+    <div id="short-form-fields" class="hidden">
+      <div class="dropzone" id="dz-video" data-kind="video">
+        <input type="file" id="input-video" accept="video/*" hidden>
+        <div class="dz-icon">▶</div>
+        <div class="dz-title">Your video</div>
+        <div class="dz-sub">Any length — auto-picks the most engaging ~45s if it runs long</div>
+        <div class="dz-file" id="video-file-label"></div>
       </div>
-
-      <div class="option-block grow">
-        <div class="option-label">Captions</div>
-        <div class="mode-picker" id="caption-mode-picker">
-          <button class="mode-btn active" data-mode="off">Off</button>
-          <button class="mode-btn" data-mode="custom">Custom text</button>
-          <button class="mode-btn" data-mode="auto">Auto lyrics</button>
-        </div>
-        <input type="text" id="caption-text" class="caption-input" placeholder="e.g. FRIDAY NIGHT" maxlength="40" disabled>
-        <div class="caption-hint" id="caption-hint"></div>
-      </div>
+      <div class="caption-hint">Tracks the action and reframes to fill a 9:16 screen with a slow cinematic push-in. Keeps the source's own audio and any on-screen text as-is.</div>
     </div>
 
     <button id="generate-btn" class="generate-btn" disabled>
-      <span>Generate music video</span>
+      <span id="generate-btn-label">Generate music video</span>
     </button>
     <div class="error-msg" id="error-msg"></div>
   </section>
@@ -90,8 +114,9 @@
         <div class="caption3d-overlay" id="caption3d-overlay"><span id="caption3d-text"></span></div>
       </div>
       <div class="result-side">
-        <div class="stat-row"><span class="stat-k">Tempo</span><span class="stat-v" id="stat-bpm">--</span></div>
-        <div class="stat-row"><span class="stat-k">Cuts</span><span class="stat-v" id="stat-cuts">--</span></div>
+        <div class="stat-row" id="stat-row-bpm"><span class="stat-k">Tempo</span><span class="stat-v" id="stat-bpm">--</span></div>
+        <div class="stat-row" id="stat-row-cuts"><span class="stat-k">Cuts</span><span class="stat-v" id="stat-cuts">--</span></div>
+        <div class="stat-row hidden" id="stat-row-highlight"><span class="stat-k">Highlight</span><span class="stat-v" id="stat-highlight">--</span></div>
         <div class="stat-row"><span class="stat-k">Length</span><span class="stat-v" id="stat-duration">--</span></div>
         <div class="stat-row"><span class="stat-k">Format</span><span class="stat-v" id="stat-ratio">--</span></div>
 

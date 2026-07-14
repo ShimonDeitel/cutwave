@@ -1,10 +1,18 @@
 # cutwave
 
-Drop in a song and some b-roll clips, pick an aspect ratio, and cutwave cuts
-the b-roll on the beat, crops out any on-screen text it finds, and burns in
-a cinematic caption that pulses with the music — either your own text, or
-auto-transcribed karaoke-style lyrics. Everything runs locally in your
-browser and on your machine — nothing is uploaded anywhere.
+Two modes, one local tool:
+
+- **Long-form video** — drop in a song and some b-roll clips, pick an aspect
+  ratio, and cutwave cuts the b-roll on the beat, crops out any on-screen
+  text it finds, and burns in a cinematic caption that pulses with the
+  music — either your own text, or auto-transcribed karaoke-style lyrics.
+- **YouTube Short** — drop in one existing video, and cutwave auto-picks its
+  most visually engaging ~45s if it runs long, tracks whatever's moving,
+  and reframes it to a screen-filling 9:16 crop with a slow cinematic
+  push-in, keeping the source's own audio and on-screen text as-is.
+
+Everything runs locally in your browser and on your machine — nothing is
+uploaded anywhere.
 
 ## Requirements
 
@@ -21,10 +29,14 @@ browser and on your machine — nothing is uploaded anywhere.
 This creates a virtualenv, installs the pinned dependencies, and starts the
 app at **http://localhost:3000**. On later runs it reuses the same venv.
 
-Open that URL, drop in a song and one or more b-roll clips (any length —
-10-minute clips are fine), pick an aspect ratio, optionally pick a caption
-mode (custom text, or auto-transcribed lyrics), and hit **Generate music
-video**.
+Open that URL and pick a mode at the top:
+
+- **Long-form video**: drop in a song and one or more b-roll clips (any
+  length — 10-minute clips are fine), pick an aspect ratio, optionally pick
+  a caption mode (custom text, or auto-transcribed lyrics), and hit
+  **Generate music video**.
+- **YouTube Short**: drop in one existing video (any length) and hit
+  **Generate YouTube Short**.
 
 ## How it works
 
@@ -89,6 +101,29 @@ Everything below is plain Python (numpy/scipy/OpenCV) and the system
   against the transcribed line timestamps, so it stays in sync with the
   baked-in captions. This is a bonus, purely client-side layer on top of
   the (already beat-cut and captioned) rendered file.
+
+### YouTube Short mode
+
+- **Highlight selection** (`server/shorts.py`) — if the source video runs
+  longer than ~75s, the whole thing is scanned with the same
+  motion/brightness/contrast scoring as the long-form b-roll picker, and the
+  highest-average-scoring contiguous ~45s window is used. Shorter videos are
+  reframed in full.
+- **Subject tracking** (`server/reframe.py`) — samples the chosen window for
+  the largest moving region (frame-diff, dilate, then the biggest contour's
+  centroid — not a raw pixel-mean, so scattered background motion doesn't
+  drag the crop off the real subject), smooths it with an EMA so the crop
+  doesn't jitter, and interpolates that into a per-frame crop position that
+  follows the action, plus a slow continuous push-in (1.0x → 1.08x) for some
+  cinematic motion even on static shots. There's no face detector here:
+  OpenCV 5.x dropped the classic `cv2.CascadeClassifier` Haar-cascade face
+  detector from these bindings, and its replacement (`FaceDetectorYN`) needs
+  a separately downloaded ONNX model, so a from-scratch motion-based tracker
+  is what's actually running — genuinely useful on its own since it follows
+  whatever's moving/acting in the shot.
+- This mode doesn't try to avoid on-screen text or add captions — the
+  source video's own audio and any on-screen text carry over untouched,
+  only reframed along with everything else.
 
 ## Notes
 
