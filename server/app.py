@@ -5,16 +5,24 @@ import sys
 
 from flask import Flask, jsonify, request, send_file, send_from_directory
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+if not getattr(sys, "frozen", False):
+    # Only needed for `python server/app.py` dev mode, where these sibling
+    # modules aren't on sys.path yet. A frozen build's own import machinery
+    # already resolves them -- and inserting this directory here would put
+    # the bundle's Frameworks dir ahead of cv2's own sys.path entry for its
+    # native-extension swap trick, breaking cv2's import (self-recursion).
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import jobs
+import licensing
+import paths
 import pipeline
 import shorts
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
-OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
-WORK_DIR = os.path.join(BASE_DIR, "work")
+STATIC_DIR = os.path.join(paths.bundle_root(), "static")
+DATA_DIR = paths.user_data_dir()
+UPLOAD_DIR = os.path.join(DATA_DIR, "uploads")
+OUTPUT_DIR = os.path.join(DATA_DIR, "outputs")
+WORK_DIR = os.path.join(DATA_DIR, "work")
 
 for d in (UPLOAD_DIR, OUTPUT_DIR, WORK_DIR):
     os.makedirs(d, exist_ok=True)
@@ -52,6 +60,10 @@ def generate():
     if mode not in ("long", "short"):
         return jsonify({"error": f"unknown mode '{mode}'"}), 400
 
+    allowed, reason = licensing.can_generate()
+    if not allowed:
+        return jsonify({"error": reason, "paywall": True}), 402
+
     job_id = jobs.create_job()
     job_upload_dir = os.path.join(UPLOAD_DIR, job_id)
     os.makedirs(job_upload_dir, exist_ok=True)
@@ -66,6 +78,7 @@ def generate():
         video.save(video_path)
 
         jobs.run_in_background(job_id, shorts.run_short_job, video_path, work_dir, output_path)
+        licensing.record_generation()
         return jsonify({"job_id": job_id})
 
     song = request.files.get("song")
@@ -98,7 +111,20 @@ def generate():
         job_id, pipeline.run_job,
         song_path, broll_paths, aspect_ratio, caption_mode, caption_text, work_dir, output_path,
     )
+    licensing.record_generation()
     return jsonify({"job_id": job_id})
+
+
+@app.route("/api/license/status")
+def license_status():
+    return jsonify(licensing.status())
+
+
+@app.route("/api/license/activate", methods=["POST"])
+def license_activate():
+    key = (request.get_json(silent=True) or {}).get("license_key") or request.form.get("license_key", "")
+    ok, message = licensing.activate(key)
+    return jsonify({"ok": ok, "message": message, **licensing.status()})
 
 
 @app.route("/api/status/<job_id>")

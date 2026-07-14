@@ -39,6 +39,39 @@ Open that URL and pick a mode at the top:
 - **YouTube Short**: drop in one existing video (any length) and hit
   **Generate YouTube Short**.
 
+## Native macOS app + paywall
+
+`server/desktop_app.py` wraps the same Flask app in a real window
+(pywebview, using the system WKWebView) instead of a browser tab, and
+`server/licensing.py` gates it: 1 free generation/day, unlimited for $5/mo
+via a LemonSqueezy license key.
+
+Build the double-click `.app`:
+
+```bash
+source venv/bin/activate
+pip install pyinstaller
+pyinstaller cutwave.spec --noconfirm
+```
+
+The result is `dist/cutwave.app`. Two things to know before handing it to
+someone else:
+
+- **ffmpeg is not bundled.** The app still shells out to `ffmpeg`/`ffprobe`
+  on `PATH`, so whoever runs it needs `brew install ffmpeg` first (same as
+  dev mode). Bundling static ffmpeg binaries was deliberately skipped for
+  now — most static macOS builds link GPL components (e.g. libx264), and
+  shipping those inside a paid, closed-source app has real GPL-compliance
+  implications that are worth deciding on deliberately, not silently.
+- **The `$5/mo` checkout link isn't wired up yet.** To sell subscriptions:
+  create a LemonSqueezy seller account, connect payout details, create a
+  $5/mo product, and paste its checkout URL into the `CHECKOUT_URL` constant
+  near the top of `static/js/app.js`. All of that (account creation, bank
+  details, product setup) has to happen in LemonSqueezy's own dashboard —
+  none of it can be done from here. Licensing/paywall logic itself
+  (`server/licensing.py`) is already wired to LemonSqueezy's real License API
+  and tested end-to-end against it.
+
 ## How it works
 
 Everything below is plain Python (numpy/scipy/OpenCV) and the system

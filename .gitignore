@@ -8,3 +8,6 @@ work/*
 __pycache__/
 *.pyc
 .DS_Store
+build/
+dist/
+license_state.json

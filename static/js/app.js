@@ -40,6 +40,78 @@
   };
   const GENERATE_LABELS = { long: "Generate music video", short: "Generate YouTube Short" };
 
+  // Set this to your LemonSqueezy checkout URL once the $5/mo product exists
+  // (Store -> Products -> your product -> Share -> copy checkout link).
+  const CHECKOUT_URL = "";
+
+  const licenseBadge = document.getElementById("license-badge");
+  const licenseBadgeText = document.getElementById("license-badge-text");
+  const licensePanel = document.getElementById("license-panel");
+  const licensePitchLinked = document.getElementById("license-pitch-linked");
+  const licensePitchUnlinked = document.getElementById("license-pitch-unlinked");
+  const licenseBuyLink = document.getElementById("license-buy-link");
+  const licenseKeyInput = document.getElementById("license-key-input");
+  const licenseActivateBtn = document.getElementById("license-activate-btn");
+  const licenseMsg = document.getElementById("license-msg");
+
+  if (CHECKOUT_URL) {
+    licenseBuyLink.href = CHECKOUT_URL;
+    licensePitchLinked.classList.remove("hidden");
+  } else {
+    licensePitchUnlinked.classList.remove("hidden");
+  }
+
+  function renderLicenseStatus(st) {
+    licenseBadge.classList.toggle("licensed", !!st.licensed);
+    licenseBadge.classList.toggle("empty", !st.licensed && st.free_remaining_today === 0);
+    licenseBadgeText.textContent = st.licensed
+      ? "Unlimited"
+      : st.free_remaining_today > 0
+        ? `${st.free_remaining_today} free video today`
+        : "Free video used today";
+  }
+
+  function refreshLicenseStatus() {
+    return fetch("/api/license/status").then((r) => r.json()).then((st) => {
+      renderLicenseStatus(st);
+      return st;
+    }).catch(() => null);
+  }
+
+  licenseBadge.addEventListener("click", () => {
+    licensePanel.classList.toggle("hidden");
+  });
+
+  licenseActivateBtn.addEventListener("click", () => {
+    const key = licenseKeyInput.value.trim();
+    if (!key) return;
+    licenseActivateBtn.disabled = true;
+    licenseMsg.textContent = "Checking...";
+    licenseMsg.className = "license-msg";
+    fetch("/api/license/activate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ license_key: key }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        licenseMsg.textContent = data.message || (data.ok ? "Unlocked." : "Something went wrong.");
+        licenseMsg.className = "license-msg " + (data.ok ? "ok" : "err");
+        renderLicenseStatus(data);
+        if (data.ok) {
+          updateGenerateEnabled();
+          setTimeout(() => licensePanel.classList.add("hidden"), 1500);
+        }
+      })
+      .catch(() => {
+        licenseMsg.textContent = "Couldn't reach the license server. Check your connection.";
+        licenseMsg.className = "license-msg err";
+      })
+      .finally(() => { licenseActivateBtn.disabled = false; });
+  });
+
+  refreshLicenseStatus();
+
   const panelSetup = document.getElementById("panel-setup");
   const panelProgress = document.getElementById("panel-progress");
   const panelResult = document.getElementById("panel-result");
@@ -190,8 +262,18 @@
     try {
       const res = await fetch("/api/generate", { method: "POST", body: fd });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "upload failed");
+      if (!res.ok) {
+        if (data.paywall) {
+          licenseMsg.textContent = data.error;
+          licenseMsg.className = "license-msg err";
+          licensePanel.classList.remove("hidden");
+          generateBtn.disabled = false;
+          return;
+        }
+        throw new Error(data.error || "upload failed");
+      }
       state.jobId = data.job_id;
+      refreshLicenseStatus();
       showPanel("progress");
       pollStatus();
     } catch (err) {

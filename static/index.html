@@ -19,7 +19,22 @@
     <span>cutwave</span>
   </div>
   <div class="tagline" id="tagline">drop a song + b-roll → get a beat-cut music video. runs entirely on this machine.</div>
+  <button class="license-badge" id="license-badge">
+    <span id="license-badge-text">…</span>
+  </button>
 </header>
+
+<div class="license-panel hidden" id="license-panel">
+  <div class="license-panel-inner">
+    <p id="license-pitch-linked" class="hidden">Unlimited generations are <b>$5/mo</b>. <a href="#" id="license-buy-link" target="_blank" rel="noopener">Subscribe here</a>, then paste the license key from your confirmation email below.</p>
+    <p id="license-pitch-unlinked" class="hidden">Unlimited generations are <b>$5/mo</b>. Paste the license key from your confirmation email below to activate.</p>
+    <div class="license-form-row">
+      <input type="text" id="license-key-input" class="caption-input" placeholder="License key">
+      <button id="license-activate-btn" class="secondary-btn">Activate</button>
+    </div>
+    <div class="license-msg" id="license-msg"></div>
+  </div>
+</div>
 
 <main class="stage">
 
