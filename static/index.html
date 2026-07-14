@@ -99,10 +99,40 @@
         <input type="file" id="input-video" accept="video/*" hidden>
         <div class="dz-icon">▶</div>
         <div class="dz-title">Your video</div>
-        <div class="dz-sub">Any length — auto-picks the most engaging ~45s if it runs long</div>
+        <div class="dz-sub" id="video-dz-sub">Any length — auto-picks the most engaging window if it runs long</div>
         <div class="dz-file" id="video-file-label"></div>
       </div>
       <div class="caption-hint">Tracks the action and reframes to fill a 9:16 screen with a slow cinematic push-in. Keeps the source's own audio and any on-screen text as-is.</div>
+
+      <div class="options-row">
+        <div class="option-block grow">
+          <div class="option-label">Duration <span id="duration-value">45s</span></div>
+          <input type="range" id="duration-slider" class="range-slider" min="10" max="60" step="1" value="45">
+        </div>
+      </div>
+
+      <div class="options-row">
+        <div class="option-block grow">
+          <label class="switch-row">
+            <label class="switch">
+              <input type="checkbox" id="subtitles-toggle">
+              <span class="switch-track"></span>
+            </label>
+            Auto subtitles (transcribes the short's own speech)
+          </label>
+        </div>
+        <div class="option-block grow">
+          <label class="switch-row">
+            <label class="switch">
+              <input type="checkbox" id="outro-toggle">
+              <span class="switch-track"></span>
+            </label>
+            Outro card (fade to black → blur → call-to-action text)
+          </label>
+          <input type="text" id="outro-text" class="caption-input outro-text-input hidden"
+                 placeholder="Listen to the full song on our YouTube channel" maxlength="80">
+        </div>
+      </div>
     </div>
 
     <button id="generate-btn" class="generate-btn" disabled>

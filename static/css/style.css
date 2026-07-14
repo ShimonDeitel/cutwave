@@ -237,6 +237,38 @@ html, body {
 .switch input:checked + .switch-track { background: var(--accent2); }
 .switch input:checked + .switch-track::before { transform: translateX(16px); background: white; }
 
+.range-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--line);
+  outline: none;
+  cursor: pointer;
+}
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--grad);
+  border: 2px solid var(--panel);
+  cursor: pointer;
+}
+.range-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--grad);
+  border: 2px solid var(--panel);
+  cursor: pointer;
+}
+.option-label span { color: var(--text); font-weight: 700; text-transform: none; letter-spacing: normal; }
+
+.outro-text-input { margin-top: 10px; }
+
 .caption-input {
   width: 100%;
   background: rgba(255,255,255,0.03);

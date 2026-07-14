@@ -69,3 +69,14 @@ app = BUNDLE(
     bundle_identifier="com.cutwave.app",
     info_plist=info_plist,
 )
+
+# macOS (15+) tags files copied during the build with a com.apple.provenance
+# xattr, which codesign treats as disallowed "detritus" and invalidates the
+# bundle's signature -- Gatekeeper then hard-rejects the app as "damaged"
+# rather than showing the milder, bypassable unidentified-developer prompt.
+# Strip xattrs and re-sign (ad-hoc for now, until a real Developer ID
+# certificate is available) so the app is at least a *valid* signed bundle.
+import subprocess
+app_path = os.path.join(root, "dist", "cutwave.app")
+subprocess.run(["xattr", "-cr", app_path], check=True)
+subprocess.run(["codesign", "--deep", "--force", "--sign", "-", app_path], check=True)

@@ -56,6 +56,19 @@ def decode_audio_wav(src_path, wav_path, sample_rate=22050):
     _run(cmd)
 
 
+def extract_audio_window(src_path, start, duration, wav_path, sample_rate=16000):
+    """Decode a [start, start+duration) slice of src's audio to mono WAV --
+    used to transcribe just a Short's trimmed window (so the resulting
+    timestamps are already 0-based, matching the reframed video's own
+    timeline) rather than the whole source file."""
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", src_path,
+        "-ac", "1", "-ar", str(sample_rate), "-vn", wav_path,
+    ]
+    _run(cmd)
+
+
 def extract_and_crop(src, start, dur, crop_rect, target_w, target_h, out_fps, out_path):
     x, y, cw, ch = crop_rect
     vf = f"crop={cw}:{ch}:{x}:{y},scale={target_w}:{target_h}:flags=lanczos,setsar=1,fps={out_fps}"
@@ -107,20 +120,31 @@ def make_thumbnail(video_path, out_path, at_seconds=0.5):
     _run(cmd)
 
 
-def mux_trimmed_source_audio(rendered_video_path, source_path, start, duration, out_path):
+def mux_trimmed_source_audio(rendered_video_path, source_path, start, duration, out_path,
+                              audio_fade_out=0.0):
     """Mux a rendered (silent) video with a trimmed slice of a *different*
     source file's own audio track -- used for Shorts, where the reframed
     render starts its own timeline at 0 but the matching audio is some
     [start, start+duration) window of the original long-form video. The `?`
-    on the audio map makes it optional so silent source videos don't fail."""
+    on the audio map makes it optional so silent source videos don't fail.
+
+    `rendered_video_path` may run longer than `duration` (e.g. an outro card
+    appended after the main clip) -- the video is used in full and only the
+    audio is trimmed, so playback isn't cut short. If `audio_fade_out` > 0,
+    the trimmed audio fades to silence over its last that-many seconds
+    instead of cutting off abruptly right where the outro begins."""
+    af = []
+    if audio_fade_out > 0:
+        fade_start = max(0.0, duration - audio_fade_out)
+        af = ["-af", f"afade=t=out:st={fade_start:.3f}:d={audio_fade_out:.3f}"]
     cmd = [
         "ffmpeg", "-y",
         "-i", rendered_video_path,
         "-ss", f"{start:.3f}", "-t", f"{duration:.3f}", "-i", source_path,
         "-map", "0:v:0", "-map", "1:a:0?",
+        *af,
         "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p",
         "-c:a", "aac", "-b:a", "192k",
-        "-t", f"{duration:.3f}",
         "-movflags", "+faststart",
         out_path,
     ]

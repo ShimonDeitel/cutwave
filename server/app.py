@@ -77,7 +77,20 @@ def generate():
         video_path = os.path.join(job_upload_dir, "video_" + _safe_name(video.filename))
         video.save(video_path)
 
-        jobs.run_in_background(job_id, shorts.run_short_job, video_path, work_dir, output_path)
+        try:
+            duration = float(request.form.get("duration", shorts.DEFAULT_DURATION))
+        except ValueError:
+            duration = shorts.DEFAULT_DURATION
+        add_subtitles = request.form.get("subtitles") == "1"
+        add_outro = request.form.get("add_outro") == "1"
+        outro_text = request.form.get("outro_text", "")
+
+        jobs.run_in_background(
+            job_id, shorts.run_short_job,
+            video_path, work_dir, output_path,
+            target_duration=duration, add_subtitles=add_subtitles,
+            add_outro=add_outro, outro_text=outro_text,
+        )
         licensing.record_generation()
         return jsonify({"job_id": job_id})
 

@@ -4,6 +4,7 @@
   const state = {
     contentMode: "long", song: null, broll: [], video: null,
     ratio: "16:9", captionMode: "off", jobId: null, pollTimer: null, lyrics: null,
+    duration: 45, subtitles: false, addOutro: false,
   };
 
   const tagline = document.getElementById("tagline");
@@ -27,6 +28,12 @@
   const generateBtn = document.getElementById("generate-btn");
   const generateBtnLabel = document.getElementById("generate-btn-label");
   const errorMsg = document.getElementById("error-msg");
+
+  const durationSlider = document.getElementById("duration-slider");
+  const durationValue = document.getElementById("duration-value");
+  const subtitlesToggle = document.getElementById("subtitles-toggle");
+  const outroToggle = document.getElementById("outro-toggle");
+  const outroTextInput = document.getElementById("outro-text");
 
   const CAPTION_HINTS = {
     off: "",
@@ -182,6 +189,21 @@
     updateGenerateEnabled();
   }
 
+  // --- short mode: duration slider, subtitles, outro ---
+  durationSlider.addEventListener("input", () => {
+    state.duration = parseInt(durationSlider.value, 10);
+    durationValue.textContent = state.duration + "s";
+  });
+
+  subtitlesToggle.addEventListener("change", () => {
+    state.subtitles = subtitlesToggle.checked;
+  });
+
+  outroToggle.addEventListener("change", () => {
+    state.addOutro = outroToggle.checked;
+    outroTextInput.classList.toggle("hidden", !state.addOutro);
+  });
+
   // --- song dropzone ---
   dzSong.addEventListener("click", () => inputSong.click());
   inputSong.addEventListener("change", (e) => setSong(e.target.files[0]));
@@ -250,6 +272,10 @@
     fd.append("mode", state.contentMode);
     if (state.contentMode === "short") {
       fd.append("video", state.video);
+      fd.append("duration", state.duration);
+      fd.append("subtitles", state.subtitles ? "1" : "0");
+      fd.append("add_outro", state.addOutro ? "1" : "0");
+      fd.append("outro_text", outroTextInput.value.trim());
     } else {
       fd.append("song", state.song);
       state.broll.forEach((f) => fd.append("broll", f));
@@ -324,7 +350,7 @@
     resultVideo.removeEventListener("timeupdate", onLyricTimeUpdate);
     resultVideo.src = `/api/preview/${state.jobId}`;
     downloadLink.href = `/api/download/${state.jobId}`;
-    statDuration.textContent = job.result.duration.toFixed(1) + "s";
+    statDuration.textContent = (job.result.total_duration || job.result.duration).toFixed(1) + "s";
     statRatio.textContent = job.result.aspect_ratio;
 
     state.lyrics = null;
@@ -396,6 +422,15 @@
     inputSong.value = "";
     inputBroll.value = "";
     inputVideo.value = "";
+    state.duration = 45;
+    state.subtitles = false;
+    state.addOutro = false;
+    durationSlider.value = 45;
+    durationValue.textContent = "45s";
+    subtitlesToggle.checked = false;
+    outroToggle.checked = false;
+    outroTextInput.value = "";
+    outroTextInput.classList.add("hidden");
     captionModePicker.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === "off"));
     captionText.disabled = true;
     captionText.value = "";
