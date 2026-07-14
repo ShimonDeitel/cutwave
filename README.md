@@ -7,9 +7,10 @@ Two modes, one local tool:
   text it finds, and burns in a cinematic caption that pulses with the
   music — either your own text, or auto-transcribed karaoke-style lyrics.
 - **YouTube Short** — drop in one existing video, and cutwave auto-picks its
-  most visually engaging ~45s if it runs long, tracks whatever's moving,
-  and reframes it to a screen-filling 9:16 crop with a slow cinematic
-  push-in, keeping the source's own audio and on-screen text as-is.
+  most visually engaging ~45s if it runs long, tracks the main subject (face
+  first, falling back to whatever's moving), and reframes it to a
+  screen-filling 9:16 crop with a slow cinematic push-in, keeping the
+  source's own audio and on-screen text as-is.
 
 Everything runs locally in your browser and on your machine — nothing is
 uploaded anywhere.
@@ -109,18 +110,20 @@ Everything below is plain Python (numpy/scipy/OpenCV) and the system
   motion/brightness/contrast scoring as the long-form b-roll picker, and the
   highest-average-scoring contiguous ~45s window is used. Shorter videos are
   reframed in full.
-- **Subject tracking** (`server/reframe.py`) — samples the chosen window for
-  the largest moving region (frame-diff, dilate, then the biggest contour's
-  centroid — not a raw pixel-mean, so scattered background motion doesn't
-  drag the crop off the real subject), smooths it with an EMA so the crop
-  doesn't jitter, and interpolates that into a per-frame crop position that
-  follows the action, plus a slow continuous push-in (1.0x → 1.08x) for some
-  cinematic motion even on static shots. There's no face detector here:
-  OpenCV 5.x dropped the classic `cv2.CascadeClassifier` Haar-cascade face
-  detector from these bindings, and its replacement (`FaceDetectorYN`) needs
-  a separately downloaded ONNX model, so a from-scratch motion-based tracker
-  is what's actually running — genuinely useful on its own since it follows
-  whatever's moving/acting in the shot.
+- **Subject tracking** (`server/reframe.py`) — samples the chosen window and
+  prefers a detected face (OpenCV's built-in YuNet DNN detector, via
+  `cv2.FaceDetectorYN` and `models/face_detection_yunet_2023mar.onnx`, ~230KB,
+  fetched once from the official OpenCV Zoo); falls back to the largest
+  moving region (frame-diff, dilate, then the biggest contour's centroid —
+  not a raw pixel-mean, so scattered background motion doesn't drag the crop
+  off the real subject) whenever no face is found, so non-portrait footage
+  (gameplay, action, general b-roll) still tracks something sensible. Either
+  signal is smoothed with an EMA so the crop doesn't jitter, then
+  interpolated into a per-frame crop position that follows the subject, plus
+  a slow continuous push-in (1.0x → 1.08x) for some cinematic motion even on
+  static shots. OpenCV 5.x dropped the classic `cv2.CascadeClassifier`
+  Haar-cascade face detector from these Python bindings, so YuNet is the
+  modern replacement rather than the more commonly-referenced older API.
 - This mode doesn't try to avoid on-screen text or add captions — the
   source video's own audio and any on-screen text carry over untouched,
   only reframed along with everything else.

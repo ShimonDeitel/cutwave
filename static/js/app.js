@@ -254,9 +254,10 @@
       const src = job.result.source_duration;
       const a = job.result.highlight_start;
       const b = a + job.result.duration;
-      statHighlight.textContent = src > job.result.duration + 0.5
+      const windowText = src > job.result.duration + 0.5
         ? `${a.toFixed(0)}s-${b.toFixed(0)}s of ${src.toFixed(0)}s`
         : "whole video";
+      statHighlight.textContent = windowText + (job.result.face_tracked ? " · face-tracked" : "");
       live3dRow.style.display = "none";
       return;
     }

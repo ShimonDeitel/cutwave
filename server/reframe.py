@@ -1,24 +1,59 @@
-"""Subject-tracking reframe for YouTube Shorts, written from scratch with
-OpenCV frame-differencing -- no downloaded model. Samples the source video,
-finds the largest moving blob per sample (dilate + contours on a frame
-diff, not a raw pixel-mean, so scattered background noise doesn't pull the
-centroid off the real subject), and smooths it into a track the renderer
-interpolates into a per-frame crop -- so a screen-filling 9:16 crop follows
-the action instead of a static center-crop.
+"""Subject-tracking reframe for YouTube Shorts. Prefers a detected face
+(OpenCV's built-in YuNet DNN detector, via cv2.FaceDetectorYN) so the crop
+follows an actual subject rather than raw motion; falls back to the largest
+moving region (frame-diff + dilate + biggest contour centroid -- not a raw
+pixel-mean, so scattered background motion doesn't drag the crop off the
+real subject) whenever no face is found, so non-portrait footage (gameplay,
+action, general b-roll) still tracks something sensible. Both signals feed
+the same EMA smoothing and get interpolated into a per-frame crop by the
+renderer.
 
 (OpenCV 5.x dropped the classic `cv2.CascadeClassifier` Haar-cascade face
-detector from these bindings, and its replacement, `FaceDetectorYN`, needs a
-separately downloaded ONNX model -- so face tracking isn't available without
-fetching an external asset. Motion is a genuinely useful signal on its own:
-it finds whatever's actually moving/talking/acting in the shot.)
+detector from these Python bindings. YuNet is the modern built-in
+replacement, at the cost of one small (~230KB) ONNX model file fetched from
+the official OpenCV Zoo -- models/face_detection_yunet_2023mar.onnx.)
 """
+import os
+
 import cv2
 import numpy as np
 
+_MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "models", "face_detection_yunet_2023mar.onnx")
+
 DETECT_SCALE = 0.5
+FACE_SCORE_THRESHOLD = 0.6
 MOTION_DIFF_THRESHOLD = 25
 MOTION_MIN_PIXELS = 80
 EMA_ALPHA = 0.35
+
+_face_detector = None
+_face_detector_size = None
+
+
+def _get_face_detector(w, h):
+    global _face_detector, _face_detector_size
+    if _face_detector is None:
+        _face_detector = cv2.FaceDetectorYN_create(
+            _MODEL_PATH, "", (w, h), score_threshold=FACE_SCORE_THRESHOLD,
+        )
+        _face_detector_size = (w, h)
+    elif _face_detector_size != (w, h):
+        _face_detector.setInputSize((w, h))
+        _face_detector_size = (w, h)
+    return _face_detector
+
+
+def _detect_face_center(frame_bgr, small_bgr):
+    h, w = small_bgr.shape[:2]
+    detector = _get_face_detector(w, h)
+    _, faces = detector.detect(small_bgr)
+    if faces is None or len(faces) == 0:
+        return None
+    best = max(faces, key=lambda f: f[2] * f[3])
+    cx = (best[0] + best[2] / 2) / DETECT_SCALE
+    cy = (best[1] + best[3] / 2) / DETECT_SCALE
+    return (float(cx), float(cy))
 
 
 def _motion_centroid(prev_small_gray, small_gray):
@@ -41,34 +76,43 @@ def _motion_centroid(prev_small_gray, small_gray):
 
 
 def track_subject(video_path, start_time, duration, sample_every=0.15):
-    """Return a list of (t_relative, cx, cy) sample points tracking the
-    largest moving region across [start_time, start_time+duration),
-    smoothed with an EMA so the crop doesn't jitter. Returns [] if nothing
-    with meaningful motion was found (caller falls back to a static
-    center crop)."""
+    """Return (track, used_face) where track is a list of
+    (t_relative, cx, cy) sample points tracking the main subject across
+    [start_time, start_time+duration), smoothed with an EMA so the crop
+    doesn't jitter, and used_face reports whether a real face was found at
+    all (vs. falling back to motion the whole way). track is [] if nothing
+    trackable was found at all (caller falls back to a static center crop)."""
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     start_frame = int(start_time * fps)
     end_frame = int((start_time + duration) * fps)
     step = max(1, int(fps * sample_every))
 
-    prev_small = None
+    prev_small_gray = None
     raw = []
+    face_hits = 0
     for f in range(start_frame, end_frame, step):
         cap.set(cv2.CAP_PROP_POS_FRAMES, f)
         ok, frame = cap.read()
         if not ok:
             continue
         t = f / fps - start_time
-        small = cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (0, 0), fx=DETECT_SCALE, fy=DETECT_SCALE)
-        center = _motion_centroid(prev_small, small) if prev_small is not None else None
-        prev_small = small
+        small_bgr = cv2.resize(frame, (0, 0), fx=DETECT_SCALE, fy=DETECT_SCALE)
+        small_gray = cv2.cvtColor(small_bgr, cv2.COLOR_BGR2GRAY)
+
+        center = _detect_face_center(frame, small_bgr)
+        if center is not None:
+            face_hits += 1
+        elif prev_small_gray is not None:
+            center = _motion_centroid(prev_small_gray, small_gray)
+        prev_small_gray = small_gray
+
         if center is not None:
             raw.append((t, center[0], center[1]))
     cap.release()
 
     if not raw:
-        return []
+        return [], False
 
     smoothed = []
     sx, sy = raw[0][1], raw[0][2]
@@ -76,7 +120,7 @@ def track_subject(video_path, start_time, duration, sample_every=0.15):
         sx += EMA_ALPHA * (x - sx)
         sy += EMA_ALPHA * (y - sy)
         smoothed.append((t, sx, sy))
-    return smoothed
+    return smoothed, face_hits > 0
 
 
 def compute_crop_box(frame_w, frame_h, center, target_ratio, zoom=1.0):

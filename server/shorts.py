@@ -146,7 +146,7 @@ def run_short_job(job_id, video_path, work_dir, output_path):
         _progress(0.35, f"Found a highlight at {start:.0f}s-{start + duration:.0f}s...")
 
     _progress(0.40, "Tracking the action to keep it in frame...")
-    track = reframe.track_subject(video_path, start, duration)
+    track, used_face = reframe.track_subject(video_path, start, duration)
 
     _progress(0.50, "Reframing to fill a vertical screen...")
     silent_path = os.path.join(work_dir, "reframed.mp4")
@@ -172,6 +172,7 @@ def run_short_job(job_id, video_path, work_dir, output_path):
             "highlight_start": start,
             "duration": duration,
             "tracked": bool(track),
+            "face_tracked": used_face,
             "aspect_ratio": "9:16",
         },
     )
