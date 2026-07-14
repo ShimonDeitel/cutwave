@@ -1,7 +1,10 @@
 """YouTube Shorts pipeline: take one existing long-form video, auto-pick its
-most visually active window to match a user-chosen target duration, track
-whatever's moving and reframe to a screen-filling 9:16 crop that follows it
-with a slow push-in, and keep the source's own audio and on-screen text
+most visually active window to match a user-chosen target duration (biased
+against windows that span a hard scene cut, since real-world sources are
+often multi-clip compilations), track whatever's moving and reframe to a
+screen-filling 9:16 crop that follows it, zooming in only when a detected
+face is small enough that it's worth bringing closer -- not a constant
+cosmetic push-in -- and keep the source's own audio and on-screen text
 untouched (this mode doesn't try to avoid text -- it's the source's own
 content, not incidental b-roll overlay). Optionally burns in auto-transcribed
 subtitles and/or appends a fade-to-blur outro card with a call-to-action line.
@@ -9,13 +12,17 @@ subtitles and/or appends a fade-to-blur outro card with a call-to-action line.
     1. probe the video; if it's already at or under the target duration,
        use all of it -- otherwise scan the whole thing for the most visually
        engaging contiguous window of that length (motion/brightness/
-       contrast, same scoring as the long-form b-roll picker)
-    2. track the largest moving region across that window (reframe.py)
-    3. render every frame: interpolate the smoothed track, crop, scale,
-       write, with a gentle continuous zoom-in for some cinematic motion
-    4. optionally transcribe that window's own speech and burn in subtitles
-    5. optionally append an outro card (outro.py)
-    6. mux the original audio back in, trimmed to the same window, fading
+       contrast, same scoring as the long-form b-roll picker, penalized if
+       a hard cut falls inside it)
+    2. re-encode just that window to its own short file -- OpenCV's frame
+       seeking is unreliable deep into a long (especially multi-clip) source
+       file, so every later pass only ever touches a short, well-formed clip
+    3. track the main subject across that window (reframe.py)
+    4. render every frame: interpolate the smoothed track (position + a
+       content-aware zoom), crop, scale, write
+    5. optionally transcribe that window's own speech and burn in subtitles
+    6. optionally append an outro card (outro.py)
+    7. mux the original audio back in, trimmed to the same window, fading
        out under the outro if one was added
 """
 import os
@@ -39,7 +46,9 @@ MAX_DURATION = 60.0
 DEFAULT_DURATION = 45.0
 HIGHLIGHT_SAMPLE_EVERY = 0.5
 
-MAX_PUSH_IN = 0.08                # slow zoom from 1.0x to 1.0+MAX_PUSH_IN across the clip
+CUT_MOTION_THRESHOLD = 34.0   # frame-to-frame diff above this = a hard scene cut, not just fast motion
+CUT_PENALTY = 0.6             # subtracted from a candidate window's avg score per cut it contains
+
 DEFAULT_OUTRO_TEXT = "Listen to the full song on our YouTube channel"
 
 
@@ -66,7 +75,7 @@ def _scan_quality(path, sample_every=HIGHLIGHT_SAMPLE_EVERY):
         brightness_score = scene_score._bell(brightness, center=120, width=90)
         contrast_score = min(1.0, contrast / 40.0)
         quality = 0.5 * motion_score + 0.3 * brightness_score + 0.2 * contrast_score
-        samples.append((t, quality))
+        samples.append((t, quality, motion))
     cap.release()
     return samples
 
@@ -77,6 +86,7 @@ def find_highlight_window(samples, target_duration, total_duration):
 
     times = np.array([s[0] for s in samples])
     scores = np.array([s[1] for s in samples])
+    is_cut = np.array([s[2] > CUT_MOTION_THRESHOLD for s in samples])
 
     best_start, best_avg = 0.0, -1.0
     for t0 in times:
@@ -86,19 +96,21 @@ def find_highlight_window(samples, target_duration, total_duration):
         mask = (times >= t0) & (times < t1)
         if not mask.any():
             continue
-        avg = float(scores[mask].mean())
+        # a cut right at the very start of the window is fine (that's just
+        # where the highlight begins) -- only penalize cuts *inside* it
+        interior_cuts = int(is_cut[mask].sum()) - (1 if is_cut[mask][0] else 0)
+        avg = float(scores[mask].mean()) - CUT_PENALTY * max(0, interior_cuts)
         if avg > best_avg:
             best_avg, best_start = avg, float(t0)
     return best_start, target_duration
 
 
-def _render_reframed(video_path, start, duration, track, out_path, progress_cb=None):
+def _render_reframed(video_path, track, out_path, progress_cb=None):
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
     w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
     h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    start_frame = int(start * fps)
-    n_frames = max(1, int(duration * fps))
+    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
 
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
     writer = cv2.VideoWriter(out_path, fourcc, fps, (OUTPUT_W, OUTPUT_H))
@@ -107,25 +119,27 @@ def _render_reframed(video_path, start, duration, track, out_path, progress_cb=N
         track_t = np.array([p[0] for p in track])
         track_x = np.array([p[1] for p in track])
         track_y = np.array([p[2] for p in track])
+        track_z = np.array([p[3] for p in track])
     else:
         track_t = np.array([])
 
-    cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
-    for i in range(n_frames):
+    i = 0
+    while True:
         ok, frame = cap.read()
         if not ok:
             break
         t = i / fps
-        center = None
+        center, zoom = None, 1.0
         if len(track_t):
             cx = float(np.interp(t, track_t, track_x))
             cy = float(np.interp(t, track_t, track_y))
+            zoom = float(np.interp(t, track_t, track_z))
             center = (cx, cy)
-        zoom = 1.0 + MAX_PUSH_IN * min(1.0, t / duration)
         x0, y0, cw, ch = reframe.compute_crop_box(w, h, center, TARGET_RATIO, zoom=zoom)
         cropped = frame[y0:y0 + ch, x0:x0 + cw]
         resized = cv2.resize(cropped, (OUTPUT_W, OUTPUT_H), interpolation=cv2.INTER_LINEAR)
         writer.write(resized)
+        i += 1
         if progress_cb and i % 30 == 0:
             progress_cb(min(0.99, i / n_frames))
 
@@ -144,7 +158,7 @@ def _last_frame(video_path):
 
 def run_short_job(job_id, video_path, work_dir, output_path,
                    target_duration=DEFAULT_DURATION, add_subtitles=False,
-                   add_outro=False, outro_text=""):
+                   add_outro=False, outro_text="", outro_duration=None):
     import jobs
 
     def _progress(frac, message):
@@ -152,6 +166,7 @@ def run_short_job(job_id, video_path, work_dir, output_path,
 
     os.makedirs(work_dir, exist_ok=True)
     target_duration = max(MIN_DURATION, min(MAX_DURATION, float(target_duration or DEFAULT_DURATION)))
+    outro_hold = max(0.5, min(8.0, float(outro_duration))) if outro_duration else outro_mod.HOLD_DURATION
 
     _progress(0.05, "Reading the video...")
     info = ffmpeg_utils.probe(video_path)
@@ -159,15 +174,19 @@ def run_short_job(job_id, video_path, work_dir, output_path,
 
     if total_duration <= target_duration:
         start, duration = 0.0, total_duration
-        _progress(0.12, f"Video is already short ({duration:.0f}s) -- reframing all of it...")
+        _progress(0.10, f"Video is already short ({duration:.0f}s) -- reframing all of it...")
     else:
-        _progress(0.12, "Scanning the full video for the most engaging moment...")
+        _progress(0.10, "Scanning the full video for the most engaging moment...")
         samples = _scan_quality(video_path)
         start, duration = find_highlight_window(samples, target_duration, total_duration)
-        _progress(0.28, f"Found a highlight at {start:.0f}s-{start + duration:.0f}s...")
+        _progress(0.20, f"Found a highlight at {start:.0f}s-{start + duration:.0f}s...")
+
+    _progress(0.24, "Extracting the selected window...")
+    window_path = os.path.join(work_dir, "window.mp4")
+    ffmpeg_utils.extract_window(video_path, start, duration, window_path, fps=OUTPUT_FPS)
 
     _progress(0.32, "Tracking the action to keep it in frame...")
-    track, used_face = reframe.track_subject(video_path, start, duration)
+    track, used_face = reframe.track_subject(window_path, 0.0, duration)
 
     _progress(0.38, "Reframing to fill a vertical screen...")
     silent_path = os.path.join(work_dir, "reframed.mp4")
@@ -175,7 +194,7 @@ def run_short_job(job_id, video_path, work_dir, output_path,
     def _render_progress(frac):
         _progress(0.38 + 0.32 * frac, "Reframing to fill a vertical screen...")
 
-    _render_reframed(video_path, start, duration, track, silent_path, progress_cb=_render_progress)
+    _render_reframed(window_path, track, silent_path, progress_cb=_render_progress)
     current_silent = silent_path
 
     lyric_lines = []
@@ -190,18 +209,20 @@ def run_short_job(job_id, video_path, work_dir, output_path,
         if lyric_lines:
             _progress(0.80, "Burning in subtitles...")
             captioned_path = os.path.join(work_dir, "captioned.mp4")
-            captions.burn_lyric_captions(current_silent, captioned_path, lyric_lines, [0.0])
+            captions.burn_subtitles(current_silent, captioned_path, lyric_lines)
             current_silent = captioned_path
 
     audio_fade_out = 0.0
     outro_added = False
+    outro_total = 0.0
     if add_outro:
         _progress(0.86, "Building the outro card...")
         last = _last_frame(current_silent)
         if last is not None:
             outro_path = os.path.join(work_dir, "outro.mp4")
             cta_text = (outro_text or "").strip() or DEFAULT_OUTRO_TEXT
-            outro_mod.render_outro_card(last, OUTPUT_FPS, cta_text, outro_path)
+            outro_total = outro_mod.render_outro_card(last, OUTPUT_FPS, cta_text, outro_path,
+                                                        hold_duration=outro_hold)
             combined_path = os.path.join(work_dir, "combined.mp4")
             ffmpeg_utils.concat_segments([current_silent, outro_path], combined_path)
             current_silent = combined_path
@@ -215,7 +236,7 @@ def run_short_job(job_id, video_path, work_dir, output_path,
     thumb_path = output_path.rsplit(".", 1)[0] + "_thumb.jpg"
     ffmpeg_utils.make_thumbnail(output_path, thumb_path, at_seconds=min(1.0, duration / 2))
 
-    total_output_duration = duration + (outro_mod.TOTAL_DURATION if outro_added else 0.0)
+    total_output_duration = duration + (outro_total if outro_added else 0.0)
 
     jobs.update_job(
         job_id, status="done", progress=1.0, message="Done.",

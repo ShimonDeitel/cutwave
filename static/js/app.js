@@ -4,7 +4,7 @@
   const state = {
     contentMode: "long", song: null, broll: [], video: null,
     ratio: "16:9", captionMode: "off", jobId: null, pollTimer: null, lyrics: null,
-    duration: 45, subtitles: false, addOutro: false,
+    duration: 45, subtitles: false, addOutro: false, outroDuration: 2.3,
   };
 
   const tagline = document.getElementById("tagline");
@@ -34,6 +34,9 @@
   const subtitlesToggle = document.getElementById("subtitles-toggle");
   const outroToggle = document.getElementById("outro-toggle");
   const outroTextInput = document.getElementById("outro-text");
+  const outroDurationRow = document.getElementById("outro-duration-row");
+  const outroDurationSlider = document.getElementById("outro-duration-slider");
+  const outroDurationValue = document.getElementById("outro-duration-value");
 
   const CAPTION_HINTS = {
     off: "",
@@ -202,6 +205,12 @@
   outroToggle.addEventListener("change", () => {
     state.addOutro = outroToggle.checked;
     outroTextInput.classList.toggle("hidden", !state.addOutro);
+    outroDurationRow.classList.toggle("hidden", !state.addOutro);
+  });
+
+  outroDurationSlider.addEventListener("input", () => {
+    state.outroDuration = parseFloat(outroDurationSlider.value);
+    outroDurationValue.textContent = state.outroDuration.toFixed(1) + "s";
   });
 
   // --- song dropzone ---
@@ -276,6 +285,7 @@
       fd.append("subtitles", state.subtitles ? "1" : "0");
       fd.append("add_outro", state.addOutro ? "1" : "0");
       fd.append("outro_text", outroTextInput.value.trim());
+      fd.append("outro_duration", state.outroDuration);
     } else {
       fd.append("song", state.song);
       state.broll.forEach((f) => fd.append("broll", f));
@@ -425,12 +435,16 @@
     state.duration = 45;
     state.subtitles = false;
     state.addOutro = false;
+    state.outroDuration = 2.3;
     durationSlider.value = 45;
     durationValue.textContent = "45s";
     subtitlesToggle.checked = false;
     outroToggle.checked = false;
     outroTextInput.value = "";
     outroTextInput.classList.add("hidden");
+    outroDurationRow.classList.add("hidden");
+    outroDurationSlider.value = 2.3;
+    outroDurationValue.textContent = "2.3s";
     captionModePicker.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === "off"));
     captionText.disabled = true;
     captionText.value = "";

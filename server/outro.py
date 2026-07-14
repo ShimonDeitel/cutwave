@@ -14,9 +14,9 @@ import captions
 
 BLACK_DURATION = 0.5
 BLUR_DURATION = 0.7
-HOLD_DURATION = 2.3
+HOLD_DURATION = 2.3           # default CTA hold time -- overridable per job
 TEXT_FADE_IN = 0.6
-TOTAL_DURATION = BLACK_DURATION + BLUR_DURATION + HOLD_DURATION
+TOTAL_DURATION = BLACK_DURATION + BLUR_DURATION + HOLD_DURATION  # kept for callers using the default
 
 
 def _heavy_blur(frame_bgr):
@@ -30,9 +30,10 @@ def _wrap_text(text, width_chars=26):
     return "\n".join(textwrap.wrap(text, width=width_chars)) or text
 
 
-def render_outro_card(last_frame_bgr, fps, text, out_path):
+def render_outro_card(last_frame_bgr, fps, text, out_path, hold_duration=HOLD_DURATION):
     """Writes a silent mp4v clip: last_frame -> black -> blurred(last_frame),
-    with `text` fading in on top of the blurred frame and holding."""
+    with `text` fading in on top of the blurred frame and holding for
+    `hold_duration` seconds. Returns the clip's total duration in seconds."""
     h, w = last_frame_bgr.shape[:2]
     blurred = _heavy_blur(last_frame_bgr)
 
@@ -51,8 +52,8 @@ def render_outro_card(last_frame_bgr, fps, text, out_path):
 
     n_black = max(1, int(BLACK_DURATION * fps))
     n_blur = max(1, int(BLUR_DURATION * fps))
-    n_hold = max(1, int(HOLD_DURATION * fps))
-    n_text_fade = max(1, int(TEXT_FADE_IN * fps))
+    n_hold = max(1, int(hold_duration * fps))
+    n_text_fade = max(1, int(min(TEXT_FADE_IN, hold_duration) * fps))
 
     black = np.zeros_like(last_frame_bgr)
 
@@ -76,4 +77,4 @@ def render_outro_card(last_frame_bgr, fps, text, out_path):
         writer.write(frame)
 
     writer.release()
-    return out_path
+    return BLACK_DURATION + BLUR_DURATION + hold_duration

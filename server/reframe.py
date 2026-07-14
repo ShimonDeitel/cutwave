@@ -26,6 +26,9 @@ FACE_SCORE_THRESHOLD = 0.6
 MOTION_DIFF_THRESHOLD = 25
 MOTION_MIN_PIXELS = 80
 EMA_ALPHA = 0.35
+ZOOM_EMA_ALPHA = 0.20
+TARGET_FACE_FRAC = 0.32      # detected face height, as a fraction of crop height, that counts as "close enough"
+MAX_NEEDED_ZOOM = 1.6        # cap how far we'll zoom in to reach that target -- avoids quality-destroying blow-ups
 
 _face_detector = None
 _face_detector_size = None
@@ -44,7 +47,8 @@ def _get_face_detector(w, h):
     return _face_detector
 
 
-def _detect_face_center(frame_bgr, small_bgr):
+def _detect_face(frame_bgr, small_bgr):
+    """Returns (cx, cy, face_h) in source-frame pixels, or None."""
     h, w = small_bgr.shape[:2]
     detector = _get_face_detector(w, h)
     _, faces = detector.detect(small_bgr)
@@ -53,7 +57,8 @@ def _detect_face_center(frame_bgr, small_bgr):
     best = max(faces, key=lambda f: f[2] * f[3])
     cx = (best[0] + best[2] / 2) / DETECT_SCALE
     cy = (best[1] + best[3] / 2) / DETECT_SCALE
-    return (float(cx), float(cy))
+    face_h = best[3] / DETECT_SCALE
+    return (float(cx), float(cy), float(face_h))
 
 
 def _motion_centroid(prev_small_gray, small_gray):
@@ -75,15 +80,25 @@ def _motion_centroid(prev_small_gray, small_gray):
     return (cx / DETECT_SCALE, cy / DETECT_SCALE)
 
 
-def track_subject(video_path, start_time, duration, sample_every=0.15):
+def track_subject(video_path, start_time, duration, sample_every=0.1):
     """Return (track, used_face) where track is a list of
-    (t_relative, cx, cy) sample points tracking the main subject across
-    [start_time, start_time+duration), smoothed with an EMA so the crop
-    doesn't jitter, and used_face reports whether a real face was found at
-    all (vs. falling back to motion the whole way). track is [] if nothing
-    trackable was found at all (caller falls back to a static center crop)."""
+    (t_relative, cx, cy, zoom) sample points tracking the main subject
+    across [start_time, start_time+duration), smoothed with an EMA so the
+    crop doesn't jitter, and used_face reports whether a real face was found
+    at all (vs. falling back to motion the whole way). track is [] if
+    nothing trackable was found at all (caller falls back to a static
+    center crop).
+
+    `zoom` is 1.0 (no zoom) unless a detected *face* is small relative to
+    the frame, in which case it's just enough to bring the face up to a
+    comfortable on-screen size, capped at MAX_NEEDED_ZOOM -- motion-only
+    tracking never zooms, since there's no reliable subject size to zoom
+    towards, and constant cosmetic zoom independent of content just
+    magnifies compression artifacts without making anything easier to see.
+    """
     cap = cv2.VideoCapture(video_path)
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    frame_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 1080.0
     start_frame = int(start_time * fps)
     end_frame = int((start_time + duration) * fps)
     step = max(1, int(fps * sample_every))
@@ -100,26 +115,32 @@ def track_subject(video_path, start_time, duration, sample_every=0.15):
         small_bgr = cv2.resize(frame, (0, 0), fx=DETECT_SCALE, fy=DETECT_SCALE)
         small_gray = cv2.cvtColor(small_bgr, cv2.COLOR_BGR2GRAY)
 
-        center = _detect_face_center(frame, small_bgr)
-        if center is not None:
+        face = _detect_face(frame, small_bgr)
+        if face is not None:
             face_hits += 1
-        elif prev_small_gray is not None:
-            center = _motion_centroid(prev_small_gray, small_gray)
+            cx, cy, face_h = face
+            needed = TARGET_FACE_FRAC * frame_h / max(1.0, face_h)
+            zoom = min(MAX_NEEDED_ZOOM, max(1.0, needed))
+        else:
+            zoom = 1.0
+            center = _motion_centroid(prev_small_gray, small_gray) if prev_small_gray is not None else None
+            cx, cy = center if center else (None, None)
         prev_small_gray = small_gray
 
-        if center is not None:
-            raw.append((t, center[0], center[1]))
+        if cx is not None:
+            raw.append((t, cx, cy, zoom))
     cap.release()
 
     if not raw:
         return [], False
 
     smoothed = []
-    sx, sy = raw[0][1], raw[0][2]
-    for t, x, y in raw:
+    sx, sy, sz = raw[0][1], raw[0][2], raw[0][3]
+    for t, x, y, z in raw:
         sx += EMA_ALPHA * (x - sx)
         sy += EMA_ALPHA * (y - sy)
-        smoothed.append((t, sx, sy))
+        sz += ZOOM_EMA_ALPHA * (z - sz)
+        smoothed.append((t, sx, sy, sz))
     return smoothed, face_hits > 0
 
 

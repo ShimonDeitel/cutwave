@@ -299,3 +299,138 @@ def burn_lyric_captions(silent_video_path, out_path, lyric_lines, beat_times,
     cap.release()
     writer.release()
     return out_path
+
+
+SUBTITLE_PALETTE = [
+    (255, 209, 102),  # gold
+    (108, 231, 255),  # cyan
+    (255, 107, 168),  # pink
+    (154, 255, 140),  # mint
+    (255, 158, 100),  # orange
+]
+
+
+def _prepare_subtitle_line(line, font_size, color, pad=36):
+    """Like _prepare_lyric_line, but single-color per line (no beat-pulse
+    shadow layer needed) -- unspoken words render dim, the current word
+    renders at full brightness in that line's assigned color."""
+    font = _load_font(font_size)
+    stroke_w = max(2, font_size // 20)
+    dummy = Image.new("RGBA", (10, 10))
+    d = ImageDraw.Draw(dummy)
+
+    text = line["text"]
+    words = line["words"]
+    bbox = d.textbbox((0, 0), text, font=font, stroke_width=stroke_w)
+    tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+    canvas_w, canvas_h = tw + pad * 2, th + pad * 2
+    origin = (pad - bbox[0], pad - bbox[1])
+
+    dim_fill = tuple(int(c * 0.55) for c in color) + (235,)
+    bright_fill = color + (255,)
+
+    base = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    ImageDraw.Draw(base).text(origin, text, font=font, fill=dim_fill,
+                               stroke_width=stroke_w, stroke_fill=(8, 8, 12, 220))
+
+    highlight_full = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
+    ImageDraw.Draw(highlight_full).text(origin, text, font=font, fill=bright_fill,
+                                         stroke_width=stroke_w, stroke_fill=(8, 8, 12, 235))
+    highlight_arr = np.array(highlight_full)
+
+    space_w = d.textlength(" ", font=font)
+    cursor = 0.0
+    margin = stroke_w + 2
+    word_crops = []
+    for w in words:
+        ww = d.textlength(w["text"], font=font)
+        x0 = origin[0] + cursor
+        x1 = x0 + ww
+        crop_box = (max(0, int(x0 - margin)), 0, min(canvas_w, int(x1 + margin)), canvas_h)
+        word_crops.append({
+            "start": w["start"], "end": w["end"],
+            "crop": highlight_arr[crop_box[1]:crop_box[3], crop_box[0]:crop_box[2]].copy(),
+            "paste_x": crop_box[0],
+        })
+        cursor += ww + space_w
+
+    return {
+        "start": line["start"], "end": line["end"],
+        "base": np.array(base), "words": word_crops, "width": canvas_w, "height": canvas_h,
+    }
+
+
+def _fit_subtitle_line(line, base_font_size, max_width, color):
+    font_size = base_font_size
+    prepared = _prepare_subtitle_line(line, font_size, color)
+    while prepared["width"] > max_width and font_size > 12:
+        font_size = int(font_size * 0.9)
+        prepared = _prepare_subtitle_line(line, font_size, color)
+    return prepared
+
+
+def burn_subtitles(silent_video_path, out_path, lines, base_font_frac=0.058,
+                    slide_duration=0.22, y_frac=0.80, progress_cb=None):
+    """Short-form dialogue subtitles: each line cycles through a bright
+    color palette (rather than one fixed color) and eases in with a
+    slide-up + fade-in as it starts, instead of just appearing. No
+    beat-pulse -- there's no beat grid for speech, so the motion here is a
+    one-shot entrance rather than a per-beat bounce."""
+    cap = cv2.VideoCapture(silent_video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    video_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    video_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+
+    base_font_size = max(18, int(video_h * base_font_frac))
+    max_width = video_w * 0.86
+    prepared_lines = [
+        _fit_subtitle_line(line, base_font_size, max_width, SUBTITLE_PALETTE[i % len(SUBTITLE_PALETTE)])
+        for i, line in enumerate(lines)
+    ]
+    starts = np.array([p["start"] for p in prepared_lines]) if prepared_lines else np.array([])
+    ends = [p["end"] for p in prepared_lines]
+
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(out_path, fourcc, fps, (video_w, video_h))
+
+    frame_idx = 0
+    while True:
+        ok, frame = cap.read()
+        if not ok:
+            break
+        t = frame_idx / fps
+
+        if len(starts):
+            li = _active_line_index(starts, ends, t)
+            if li >= 0:
+                line = prepared_lines[li]
+                composite = line["base"].copy()
+                word_starts = [w["start"] for w in line["words"]]
+                wi = int(np.searchsorted(word_starts, t, side="right")) - 1
+                if wi >= 0:
+                    wc = line["words"][wi]
+                    _rgba_over(composite, wc["crop"], wc["paste_x"], 0)
+
+                since_start = t - line["start"]
+                ease = min(1.0, max(0.0, since_start / slide_duration))
+                ease = 1 - (1 - ease) ** 3  # ease-out cubic
+                offset_y = int((1 - ease) * video_h * 0.05)
+
+                if ease < 1.0:
+                    composite = composite.copy()
+                    composite[:, :, 3] = (composite[:, :, 3].astype(np.float32) * ease).astype(np.uint8)
+
+                cw, ch = composite.shape[1], composite.shape[0]
+                cx = video_w // 2 - cw // 2
+                cy = int(video_h * y_frac) - ch // 2 + offset_y
+                _alpha_blend(frame, composite, cx, cy)
+
+        writer.write(frame)
+        frame_idx += 1
+        if progress_cb and frame_idx % 30 == 0:
+            progress_cb(min(0.99, frame_idx / n_frames))
+
+    cap.release()
+    writer.release()
+    return out_path

@@ -102,7 +102,7 @@
         <div class="dz-sub" id="video-dz-sub">Any length — auto-picks the most engaging window if it runs long</div>
         <div class="dz-file" id="video-file-label"></div>
       </div>
-      <div class="caption-hint">Tracks the action and reframes to fill a 9:16 screen with a slow cinematic push-in. Keeps the source's own audio and any on-screen text as-is.</div>
+      <div class="caption-hint">Tracks the action and reframes to fill a 9:16 screen, zooming in only when a face is small enough to be worth bringing closer. Keeps the source's own audio and any on-screen text as-is.</div>
 
       <div class="options-row">
         <div class="option-block grow">
@@ -131,6 +131,10 @@
           </label>
           <input type="text" id="outro-text" class="caption-input outro-text-input hidden"
                  placeholder="Listen to the full song on our YouTube channel" maxlength="80">
+          <div class="outro-duration-row hidden" id="outro-duration-row">
+            <div class="option-label">Hold for <span id="outro-duration-value">2.3s</span></div>
+            <input type="range" id="outro-duration-slider" class="range-slider" min="0.5" max="8" step="0.1" value="2.3">
+          </div>
         </div>
       </div>
     </div>

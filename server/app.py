@@ -84,12 +84,16 @@ def generate():
         add_subtitles = request.form.get("subtitles") == "1"
         add_outro = request.form.get("add_outro") == "1"
         outro_text = request.form.get("outro_text", "")
+        try:
+            outro_duration = float(request.form["outro_duration"]) if add_outro and "outro_duration" in request.form else None
+        except ValueError:
+            outro_duration = None
 
         jobs.run_in_background(
             job_id, shorts.run_short_job,
             video_path, work_dir, output_path,
             target_duration=duration, add_subtitles=add_subtitles,
-            add_outro=add_outro, outro_text=outro_text,
+            add_outro=add_outro, outro_text=outro_text, outro_duration=outro_duration,
         )
         licensing.record_generation()
         return jsonify({"job_id": job_id})

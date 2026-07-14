@@ -69,6 +69,28 @@ def extract_audio_window(src_path, start, duration, wav_path, sample_rate=16000)
     _run(cmd)
 
 
+def extract_window(src_path, start, duration, out_path, fps=None):
+    """Frame-accurately re-encode a [start, start+duration) window of src to
+    its own standalone file, starting at its own timeline 0 -- used before
+    tracking/reframing a Short's highlight window. OpenCV's frame-index
+    seeking (CAP_PROP_POS_FRAMES) is unreliable deep into a long source
+    file, especially a multi-clip compilation that splices together
+    different resolutions/frame rates, and can hand back a garbled or
+    wrong-offset frame. Re-encoding here normalizes the window to one
+    consistent format up front, so every later OpenCV pass only ever reads
+    a short, well-formed file from its own start."""
+    vf = [f"fps={fps}"] if fps else []
+    cmd = [
+        "ffmpeg", "-y",
+        "-ss", f"{start:.3f}", "-i", src_path, "-t", f"{duration:.3f}",
+        *(["-vf", ",".join(vf)] if vf else []),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", "-pix_fmt", "yuv420p",
+        "-an",
+        out_path,
+    ]
+    _run(cmd)
+
+
 def extract_and_crop(src, start, dur, crop_rect, target_w, target_h, out_fps, out_path):
     x, y, cw, ch = crop_rect
     vf = f"crop={cw}:{ch}:{x}:{y},scale={target_w}:{target_h}:flags=lanczos,setsar=1,fps={out_fps}"
