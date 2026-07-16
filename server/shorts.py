@@ -156,6 +156,89 @@ def _last_frame(video_path):
     return frame if ok else None
 
 
+def _render_one_clip(video_path, start, duration, work_dir, output_path,
+                      add_subtitles, add_outro, outro_text, outro_hold,
+                      progress_cb=None):
+    """Runs the full per-window pipeline -- extract, track, reframe,
+    optional subtitles, optional outro, mux audio -- for a single
+    [start, start+duration) window of video_path, writing the finished clip
+    to output_path. Shared by both the single auto-highlight job and the
+    sequential-batch job so they don't duplicate this logic. progress_cb, if
+    given, is called (frac, message) with frac in 0..1 across just this one
+    clip. Returns a result dict describing what was produced."""
+    os.makedirs(work_dir, exist_ok=True)
+
+    def _p(frac, msg):
+        if progress_cb:
+            progress_cb(frac, msg)
+
+    _p(0.0, "Extracting the selected window...")
+    window_path = os.path.join(work_dir, "window.mp4")
+    ffmpeg_utils.extract_window(video_path, start, duration, window_path, fps=OUTPUT_FPS)
+
+    _p(0.10, "Tracking the action to keep it in frame...")
+    track, used_face = reframe.track_subject(window_path, 0.0, duration)
+
+    _p(0.20, "Reframing to fill a vertical screen...")
+    silent_path = os.path.join(work_dir, "reframed.mp4")
+    _render_reframed(window_path, track, silent_path,
+                      progress_cb=lambda f: _p(0.20 + 0.40 * f, "Reframing to fill a vertical screen..."))
+    current_silent = silent_path
+
+    lyric_lines = []
+    if add_subtitles:
+        _p(0.62, "Transcribing speech for subtitles...")
+        audio_wav = os.path.join(work_dir, "short_audio.wav")
+        ffmpeg_utils.extract_audio_window(video_path, start, duration, audio_wav)
+        try:
+            lyric_lines = transcribe.transcribe_song(audio_wav)
+        except Exception:
+            lyric_lines = []
+        if lyric_lines:
+            _p(0.75, "Burning in subtitles...")
+            captioned_path = os.path.join(work_dir, "captioned.mp4")
+            captions.burn_subtitles(current_silent, captioned_path, lyric_lines)
+            current_silent = captioned_path
+
+    audio_fade_out = 0.0
+    outro_added = False
+    outro_total = 0.0
+    if add_outro:
+        _p(0.85, "Building the outro card...")
+        last = _last_frame(current_silent)
+        if last is not None:
+            outro_path = os.path.join(work_dir, "outro.mp4")
+            cta_text = (outro_text or "").strip() or DEFAULT_OUTRO_TEXT
+            outro_total = outro_mod.render_outro_card(last, OUTPUT_FPS, cta_text, outro_path,
+                                                        hold_duration=outro_hold)
+            combined_path = os.path.join(work_dir, "combined.mp4")
+            ffmpeg_utils.concat_segments([current_silent, outro_path], combined_path)
+            current_silent = combined_path
+            audio_fade_out = outro_mod.BLACK_DURATION
+            outro_added = True
+
+    _p(0.92, "Mixing the original audio back in...")
+    ffmpeg_utils.mux_trimmed_source_audio(current_silent, video_path, start, duration, output_path,
+                                           audio_fade_out=audio_fade_out)
+
+    thumb_path = output_path.rsplit(".", 1)[0] + "_thumb.jpg"
+    ffmpeg_utils.make_thumbnail(output_path, thumb_path, at_seconds=min(1.0, duration / 2))
+    _p(1.0, "Done.")
+
+    total_output_duration = duration + (outro_total if outro_added else 0.0)
+    return {
+        "video_path": output_path,
+        "thumb_path": thumb_path,
+        "start": start,
+        "duration": duration,
+        "total_duration": total_output_duration,
+        "tracked": bool(track),
+        "face_tracked": used_face,
+        "subtitled": bool(lyric_lines),
+        "outro": outro_added,
+    }
+
+
 def run_short_job(job_id, video_path, work_dir, output_path,
                    target_duration=DEFAULT_DURATION, add_subtitles=False,
                    add_outro=False, outro_text="", outro_duration=None):
@@ -164,7 +247,6 @@ def run_short_job(job_id, video_path, work_dir, output_path,
     def _progress(frac, message):
         jobs.update_job(job_id, progress=round(frac, 3), message=message)
 
-    os.makedirs(work_dir, exist_ok=True)
     target_duration = max(MIN_DURATION, min(MAX_DURATION, float(target_duration or DEFAULT_DURATION)))
     outro_hold = max(0.5, min(8.0, float(outro_duration))) if outro_duration else outro_mod.HOLD_DURATION
 
@@ -179,79 +261,84 @@ def run_short_job(job_id, video_path, work_dir, output_path,
         _progress(0.10, "Scanning the full video for the most engaging moment...")
         samples = _scan_quality(video_path)
         start, duration = find_highlight_window(samples, target_duration, total_duration)
-        _progress(0.20, f"Found a highlight at {start:.0f}s-{start + duration:.0f}s...")
+        _progress(0.18, f"Found a highlight at {start:.0f}s-{start + duration:.0f}s...")
 
-    _progress(0.24, "Extracting the selected window...")
-    window_path = os.path.join(work_dir, "window.mp4")
-    ffmpeg_utils.extract_window(video_path, start, duration, window_path, fps=OUTPUT_FPS)
+    def _clip_progress(frac, message):
+        _progress(0.18 + 0.80 * frac, message)
 
-    _progress(0.32, "Tracking the action to keep it in frame...")
-    track, used_face = reframe.track_subject(window_path, 0.0, duration)
-
-    _progress(0.38, "Reframing to fill a vertical screen...")
-    silent_path = os.path.join(work_dir, "reframed.mp4")
-
-    def _render_progress(frac):
-        _progress(0.38 + 0.32 * frac, "Reframing to fill a vertical screen...")
-
-    _render_reframed(window_path, track, silent_path, progress_cb=_render_progress)
-    current_silent = silent_path
-
-    lyric_lines = []
-    if add_subtitles:
-        _progress(0.72, "Transcribing speech for subtitles...")
-        audio_wav = os.path.join(work_dir, "short_audio.wav")
-        ffmpeg_utils.extract_audio_window(video_path, start, duration, audio_wav)
-        try:
-            lyric_lines = transcribe.transcribe_song(audio_wav)
-        except Exception:
-            lyric_lines = []
-        if lyric_lines:
-            _progress(0.80, "Burning in subtitles...")
-            captioned_path = os.path.join(work_dir, "captioned.mp4")
-            captions.burn_subtitles(current_silent, captioned_path, lyric_lines)
-            current_silent = captioned_path
-
-    audio_fade_out = 0.0
-    outro_added = False
-    outro_total = 0.0
-    if add_outro:
-        _progress(0.86, "Building the outro card...")
-        last = _last_frame(current_silent)
-        if last is not None:
-            outro_path = os.path.join(work_dir, "outro.mp4")
-            cta_text = (outro_text or "").strip() or DEFAULT_OUTRO_TEXT
-            outro_total = outro_mod.render_outro_card(last, OUTPUT_FPS, cta_text, outro_path,
-                                                        hold_duration=outro_hold)
-            combined_path = os.path.join(work_dir, "combined.mp4")
-            ffmpeg_utils.concat_segments([current_silent, outro_path], combined_path)
-            current_silent = combined_path
-            audio_fade_out = outro_mod.BLACK_DURATION
-            outro_added = True
-
-    _progress(0.94, "Mixing the original audio back in...")
-    ffmpeg_utils.mux_trimmed_source_audio(current_silent, video_path, start, duration, output_path,
-                                           audio_fade_out=audio_fade_out)
-
-    thumb_path = output_path.rsplit(".", 1)[0] + "_thumb.jpg"
-    ffmpeg_utils.make_thumbnail(output_path, thumb_path, at_seconds=min(1.0, duration / 2))
-
-    total_output_duration = duration + (outro_total if outro_added else 0.0)
+    result = _render_one_clip(video_path, start, duration, work_dir, output_path,
+                               add_subtitles, add_outro, outro_text, outro_hold,
+                               progress_cb=_clip_progress)
 
     jobs.update_job(
         job_id, status="done", progress=1.0, message="Done.",
         result={
-            "video_path": output_path,
-            "thumb_path": thumb_path,
+            **result,
             "mode": "short",
             "source_duration": total_duration,
-            "highlight_start": start,
-            "duration": duration,
-            "total_duration": total_output_duration,
-            "tracked": bool(track),
-            "face_tracked": used_face,
+            "highlight_start": result["start"],
             "aspect_ratio": "9:16",
-            "subtitled": bool(lyric_lines),
-            "outro": outro_added,
+        },
+    )
+
+
+def run_short_batch_job(job_id, video_path, work_dir, output_dir,
+                         count=3, target_duration=DEFAULT_DURATION,
+                         add_subtitles=False, add_outro=False, outro_text="",
+                         outro_duration=None):
+    """Splits video_path into up to `count` sequential, non-overlapping
+    windows of target_duration seconds each -- 0-D, D-2D, 2D-3D, ... in
+    order, rather than auto-picking one highlight -- so a long source
+    becomes a series of shorts walking through it in order. Stops early
+    (producing fewer than `count`) once there isn't a full target_duration
+    window of source left."""
+    import jobs
+
+    def _progress(frac, message):
+        jobs.update_job(job_id, progress=round(frac, 3), message=message)
+
+    os.makedirs(work_dir, exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
+    count = max(1, min(20, int(count or 1)))
+    target_duration = max(MIN_DURATION, min(MAX_DURATION, float(target_duration or DEFAULT_DURATION)))
+    outro_hold = max(0.5, min(8.0, float(outro_duration))) if outro_duration else outro_mod.HOLD_DURATION
+
+    _progress(0.02, "Reading the video...")
+    info = ffmpeg_utils.probe(video_path)
+    total_duration = info["duration"]
+
+    if total_duration <= target_duration:
+        planned = 1
+    else:
+        planned = min(count, max(1, int(total_duration // target_duration)))
+
+    clips = []
+    for i in range(planned):
+        start = i * target_duration
+        duration = target_duration if total_duration > target_duration else total_duration
+        if start + duration > total_duration + 0.01:
+            break
+
+        clip_work_dir = os.path.join(work_dir, f"clip_{i + 1}")
+        output_path = os.path.join(output_dir, f"clip_{i + 1}.mp4")
+
+        def _clip_progress(frac, message, idx=i):
+            overall = (idx + frac) / planned
+            _progress(0.02 + 0.96 * overall, f"Clip {idx + 1}/{planned}: {message}")
+
+        result = _render_one_clip(video_path, start, duration, clip_work_dir, output_path,
+                                   add_subtitles, add_outro, outro_text, outro_hold,
+                                   progress_cb=_clip_progress)
+        clips.append({**result, "index": i + 1})
+
+    jobs.update_job(
+        job_id, status="done", progress=1.0, message="Done.",
+        result={
+            "mode": "short_batch",
+            "clips": clips,
+            "requested_count": count,
+            "produced_count": len(clips),
+            "source_duration": total_duration,
+            "aspect_ratio": "9:16",
         },
     )

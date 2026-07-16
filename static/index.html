@@ -106,8 +106,23 @@
 
       <div class="options-row">
         <div class="option-block grow">
+          <div class="option-label">Selection</div>
+          <div class="mode-picker" id="short-selection-picker">
+            <button class="mode-btn active" data-selection="highlight">Best highlight</button>
+            <button class="mode-btn" data-selection="sequential">Sequential clips</button>
+          </div>
+          <div class="caption-hint" id="selection-hint">Auto-picks the single most visually engaging window.</div>
+        </div>
+      </div>
+
+      <div class="options-row">
+        <div class="option-block grow">
           <div class="option-label">Duration <span id="duration-value">45s</span></div>
           <input type="range" id="duration-slider" class="range-slider" min="10" max="60" step="1" value="45">
+        </div>
+        <div class="option-block grow hidden" id="clip-count-block">
+          <div class="option-label">Number of clips <span id="clip-count-value">3</span></div>
+          <input type="range" id="clip-count-slider" class="range-slider" min="2" max="10" step="1" value="3">
         </div>
       </div>
 
@@ -181,6 +196,12 @@
         <button id="reset-btn" class="secondary-btn">Start another</button>
       </div>
     </div>
+  </section>
+
+  <section id="panel-result-batch" class="panel hidden">
+    <div class="batch-header" id="batch-summary">Clips generated</div>
+    <div class="batch-gallery" id="batch-gallery"></div>
+    <button id="reset-btn-batch" class="secondary-btn">Start another</button>
   </section>
 
 </main>

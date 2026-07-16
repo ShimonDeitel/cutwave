@@ -88,13 +88,26 @@ def generate():
             outro_duration = float(request.form["outro_duration"]) if add_outro and "outro_duration" in request.form else None
         except ValueError:
             outro_duration = None
+        try:
+            batch_count = int(request.form.get("batch_count", 1))
+        except ValueError:
+            batch_count = 1
 
-        jobs.run_in_background(
-            job_id, shorts.run_short_job,
-            video_path, work_dir, output_path,
-            target_duration=duration, add_subtitles=add_subtitles,
-            add_outro=add_outro, outro_text=outro_text, outro_duration=outro_duration,
-        )
+        if batch_count > 1:
+            output_dir = os.path.join(OUTPUT_DIR, job_id)
+            jobs.run_in_background(
+                job_id, shorts.run_short_batch_job,
+                video_path, work_dir, output_dir,
+                count=batch_count, target_duration=duration, add_subtitles=add_subtitles,
+                add_outro=add_outro, outro_text=outro_text, outro_duration=outro_duration,
+            )
+        else:
+            jobs.run_in_background(
+                job_id, shorts.run_short_job,
+                video_path, work_dir, output_path,
+                target_duration=duration, add_subtitles=add_subtitles,
+                add_outro=add_outro, outro_text=outro_text, outro_duration=outro_duration,
+            )
         licensing.record_generation()
         return jsonify({"job_id": job_id})
 
@@ -167,6 +180,32 @@ def preview(job_id):
     if job is None or job.get("status") != "done":
         return jsonify({"error": "not ready"}), 404
     return send_file(job["result"]["video_path"], conditional=True)
+
+
+def _batch_clip_path(job_id, clip_index):
+    job = jobs.get_job(job_id)
+    if job is None or job.get("status") != "done" or job["result"].get("mode") != "short_batch":
+        return None
+    clips = job["result"]["clips"]
+    if clip_index < 1 or clip_index > len(clips):
+        return None
+    return clips[clip_index - 1]["video_path"]
+
+
+@app.route("/api/download/<job_id>/<int:clip_index>")
+def download_clip(job_id, clip_index):
+    path = _batch_clip_path(job_id, clip_index)
+    if path is None:
+        return jsonify({"error": "not ready"}), 404
+    return send_file(path, as_attachment=True, download_name=f"cutwave_{job_id}_clip{clip_index}.mp4")
+
+
+@app.route("/api/preview/<job_id>/<int:clip_index>")
+def preview_clip(job_id, clip_index):
+    path = _batch_clip_path(job_id, clip_index)
+    if path is None:
+        return jsonify({"error": "not ready"}), 404
+    return send_file(path, conditional=True)
 
 
 if __name__ == "__main__":

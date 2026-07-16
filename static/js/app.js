@@ -5,6 +5,7 @@
     contentMode: "long", song: null, broll: [], video: null,
     ratio: "16:9", captionMode: "off", jobId: null, pollTimer: null, lyrics: null,
     duration: 45, subtitles: false, addOutro: false, outroDuration: 2.3,
+    selectionMode: "highlight", clipCount: 3,
   };
 
   const tagline = document.getElementById("tagline");
@@ -37,6 +38,17 @@
   const outroDurationRow = document.getElementById("outro-duration-row");
   const outroDurationSlider = document.getElementById("outro-duration-slider");
   const outroDurationValue = document.getElementById("outro-duration-value");
+
+  const shortSelectionPicker = document.getElementById("short-selection-picker");
+  const selectionHint = document.getElementById("selection-hint");
+  const clipCountBlock = document.getElementById("clip-count-block");
+  const clipCountSlider = document.getElementById("clip-count-slider");
+  const clipCountValue = document.getElementById("clip-count-value");
+
+  const SELECTION_HINTS = {
+    highlight: "Auto-picks the single most visually engaging window.",
+    sequential: "Walks through the video in order: 0-Ds, D-2Ds, 2D-3Ds... one Short per window.",
+  };
 
   const CAPTION_HINTS = {
     off: "",
@@ -125,8 +137,13 @@
   const panelSetup = document.getElementById("panel-setup");
   const panelProgress = document.getElementById("panel-progress");
   const panelResult = document.getElementById("panel-result");
+  const panelResultBatch = document.getElementById("panel-result-batch");
   const progressFill = document.getElementById("progress-fill");
   const progressMsg = document.getElementById("progress-msg");
+
+  const batchSummary = document.getElementById("batch-summary");
+  const batchGallery = document.getElementById("batch-gallery");
+  const resetBtnBatch = document.getElementById("reset-btn-batch");
 
   const resultVideo = document.getElementById("result-video");
   const downloadLink = document.getElementById("download-link");
@@ -169,7 +186,11 @@
     longFormFields.classList.toggle("hidden", state.contentMode !== "long");
     shortFormFields.classList.toggle("hidden", state.contentMode !== "short");
     tagline.textContent = TAGLINES[state.contentMode];
-    generateBtnLabel.textContent = GENERATE_LABELS[state.contentMode];
+    if (state.contentMode === "short") {
+      updateGenerateLabel();
+    } else {
+      generateBtnLabel.textContent = GENERATE_LABELS.long;
+    }
     updateGenerateEnabled();
   });
 
@@ -212,6 +233,30 @@
     state.outroDuration = parseFloat(outroDurationSlider.value);
     outroDurationValue.textContent = state.outroDuration.toFixed(1) + "s";
   });
+
+  shortSelectionPicker.addEventListener("click", (e) => {
+    const btn = e.target.closest(".mode-btn");
+    if (!btn) return;
+    shortSelectionPicker.querySelectorAll(".mode-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    state.selectionMode = btn.dataset.selection;
+    selectionHint.textContent = SELECTION_HINTS[state.selectionMode];
+    clipCountBlock.classList.toggle("hidden", state.selectionMode !== "sequential");
+    updateGenerateLabel();
+  });
+
+  clipCountSlider.addEventListener("input", () => {
+    state.clipCount = parseInt(clipCountSlider.value, 10);
+    clipCountValue.textContent = state.clipCount;
+    updateGenerateLabel();
+  });
+
+  function updateGenerateLabel() {
+    if (state.contentMode !== "short") return;
+    generateBtnLabel.textContent = state.selectionMode === "sequential"
+      ? `Generate ${state.clipCount} YouTube Shorts`
+      : "Generate YouTube Short";
+  }
 
   // --- song dropzone ---
   dzSong.addEventListener("click", () => inputSong.click());
@@ -286,6 +331,7 @@
       fd.append("add_outro", state.addOutro ? "1" : "0");
       fd.append("outro_text", outroTextInput.value.trim());
       fd.append("outro_duration", state.outroDuration);
+      fd.append("batch_count", state.selectionMode === "sequential" ? state.clipCount : 1);
     } else {
       fd.append("song", state.song);
       state.broll.forEach((f) => fd.append("broll", f));
@@ -356,6 +402,10 @@
   }
 
   function onDone(job) {
+    if (job.result.mode === "short_batch") {
+      onDoneBatch(job);
+      return;
+    }
     showPanel("result");
     resultVideo.removeEventListener("timeupdate", onLyricTimeUpdate);
     resultVideo.src = `/api/preview/${state.jobId}`;
@@ -399,6 +449,26 @@
     }
   }
 
+  function onDoneBatch(job) {
+    showPanel("result-batch");
+    const { clips, produced_count, requested_count, source_duration } = job.result;
+    batchSummary.textContent = produced_count < requested_count
+      ? `${produced_count} of ${requested_count} requested clips (source ran out at ${source_duration.toFixed(0)}s)`
+      : `${produced_count} clip${produced_count === 1 ? "" : "s"} generated`;
+
+    batchGallery.innerHTML = "";
+    clips.forEach((clip) => {
+      const card = document.createElement("div");
+      card.className = "batch-card";
+      card.innerHTML = `
+        <div class="video-frame"><video controls playsinline src="/api/preview/${state.jobId}/${clip.index}"></video></div>
+        <div class="batch-card-meta"><span>Clip ${clip.index}</span><b>${clip.total_duration.toFixed(1)}s</b></div>
+        <a class="download-btn" href="/api/download/${state.jobId}/${clip.index}" download>Download</a>
+      `;
+      batchGallery.appendChild(card);
+    });
+  }
+
   live3dToggle.addEventListener("change", () => {
     caption3dOverlay.classList.toggle("active", live3dToggle.checked);
     if (live3dToggle.checked && window.cutwaveAudio3D) {
@@ -408,7 +478,7 @@
     }
   });
 
-  resetBtn.addEventListener("click", () => {
+  function resetAll() {
     if (window.cutwaveAudio3D) window.cutwaveAudio3D.stop();
     resultVideo.removeEventListener("timeupdate", onLyricTimeUpdate);
     state.song = null;
@@ -436,6 +506,8 @@
     state.subtitles = false;
     state.addOutro = false;
     state.outroDuration = 2.3;
+    state.selectionMode = "highlight";
+    state.clipCount = 3;
     durationSlider.value = 45;
     durationValue.textContent = "45s";
     subtitlesToggle.checked = false;
@@ -445,6 +517,12 @@
     outroDurationRow.classList.add("hidden");
     outroDurationSlider.value = 2.3;
     outroDurationValue.textContent = "2.3s";
+    shortSelectionPicker.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.selection === "highlight"));
+    selectionHint.textContent = SELECTION_HINTS.highlight;
+    clipCountBlock.classList.add("hidden");
+    clipCountSlider.value = 3;
+    clipCountValue.textContent = "3";
+    batchGallery.innerHTML = "";
     captionModePicker.querySelectorAll(".mode-btn").forEach((b) => b.classList.toggle("active", b.dataset.mode === "off"));
     captionText.disabled = true;
     captionText.value = "";
@@ -454,11 +532,15 @@
     generateBtn.disabled = true;
     progressFill.style.width = "0%";
     showPanel("setup");
-  });
+  }
+
+  resetBtn.addEventListener("click", resetAll);
+  resetBtnBatch.addEventListener("click", resetAll);
 
   function showPanel(which) {
     panelSetup.classList.toggle("hidden", which !== "setup");
     panelProgress.classList.toggle("hidden", which !== "progress");
     panelResult.classList.toggle("hidden", which !== "result");
+    panelResultBatch.classList.toggle("hidden", which !== "result-batch");
   }
 })();
